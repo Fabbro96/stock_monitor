@@ -6,34 +6,59 @@ let currentFilters = { action: '', q: '' };
 
 const renderAdviceCard = (advice) => {
   const isFollowed = advice.followed ? 'checked' : '';
+  const actionLabel = advice.action === 'BUY' ? '🟢 COMPRARE (BUY)' : (advice.action === 'SELL' ? '🔴 VENDERE (SELL)' : '🟡 MANTENERE (HOLD)');
   const badgeClass = advice.action === 'BUY' ? 'badge-buy' : (advice.action === 'SELL' ? 'badge-sell' : 'badge-hold');
   
   return `
     <div class="card" id="advice-${advice.id}">
         <div class="flex justify-between items-start mb-3">
             <div>
-                <div class="flex items-center gap-2 mb-1">
+                <div class="flex items-center gap-3 mb-1">
                     <h3 class="text-lg font-bold">${advice.ticker}</h3>
-                    <span class="badge ${badgeClass}">${advice.action}</span>
+                    <span class="badge ${badgeClass}">${actionLabel}</span>
                 </div>
-                <div class="text-xs text-muted">${formatDateTime(advice.timestamp || advice.createdAt)}</div>
+                <div class="text-xs text-muted">Generato: ${formatDateTime(advice.timestamp || advice.createdAt)}</div>
             </div>
-            <div class="flex items-center gap-2 text-sm">
+            <div class="flex items-center gap-2 text-sm bg-[rgba(255,255,255,0.03)] px-3 py-1 rounded border border-border-color">
                 <input type="checkbox" id="cb-${advice.id}" ${isFollowed} onchange="window.toggleFollow(${advice.id})">
-                <label for="cb-${advice.id}" class="mb-0 cursor-pointer">Seguito</label>
+                <label for="cb-${advice.id}" class="mb-0 cursor-pointer text-xs font-semibold">Segnato come Seguito</label>
             </div>
         </div>
         
-        <p class="mb-4 text-primary leading-relaxed">${advice.reasoning}</p>
+        <p class="mb-4 text-primary leading-relaxed" style="font-size: 0.95rem;">${advice.reasoning}</p>
         
-        <div class="flex gap-4 text-sm bg-[var(--bg-color)] p-3 rounded border border-border-color mt-3">
-            ${advice.targetPrice ? `<div><span class="text-muted block text-xs">Target Price</span><span class="font-bold">${formatCurrency(advice.targetPrice)}</span></div>` : ''}
-            ${advice.confidence ? `<div><span class="text-muted block text-xs">Confidenza</span><span class="font-bold">${advice.confidence}</span></div>` : ''}
-            ${advice.timeframe ? `<div><span class="text-muted block text-xs">Timeframe</span><span class="font-bold">${advice.timeframe}</span></div>` : ''}
+        <div class="flex gap-4 text-sm bg-[var(--bg-color)] p-3 rounded border border-border-color mt-3 flex-wrap">
+            ${advice.targetPrice ? `
+            <div>
+                <span class="text-muted block text-xs flex items-center gap-1">
+                    Target Price
+                    <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Prezzo obiettivo stimato dall'IA</span></span>
+                </span>
+                <span class="font-bold text-primary">${formatCurrency(advice.targetPrice)}</span>
+            </div>` : ''}
+            
+            ${advice.confidence ? `
+            <div>
+                <span class="text-muted block text-xs flex items-center gap-1">
+                    Confidenza
+                    <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Grado di attendibilità dell'analisi</span></span>
+                </span>
+                <span class="font-bold">${advice.confidence}</span>
+            </div>` : ''}
+            
+            ${advice.timeframe ? `
+            <div>
+                <span class="text-muted block text-xs flex items-center gap-1">
+                    Orizzonte
+                    <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Orizzonte temporale raccomandato</span></span>
+                </span>
+                <span class="font-bold">${advice.timeframe}</span>
+            </div>` : ''}
         </div>
     </div>
   `;
 };
+
 
 const loadAdvice = async (page = 1, append = false) => {
   try {

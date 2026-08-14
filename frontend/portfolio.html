@@ -119,19 +119,31 @@
                 <!-- Summary Bar -->
                 <div class="card mb-4 flex justify-between items-center flex-wrap gap-4">
                     <div>
-                        <div class="text-muted text-sm">Valore Totale</div>
+                        <div class="text-muted text-sm flex items-center gap-1">
+                            <span>Valore Attuale</span>
+                            <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Valore di mercato odierno di tutte le azioni possedute.</span></span>
+                        </div>
                         <div class="text-xl font-bold" id="totalValue">-- €</div>
                     </div>
                     <div>
-                        <div class="text-muted text-sm">Totale Investito</div>
+                        <div class="text-muted text-sm flex items-center gap-1">
+                            <span>Capitale Investito</span>
+                            <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Somma totale del denaro speso all'acquisto delle posizioni.</span></span>
+                        </div>
                         <div class="text-xl font-bold" id="totalInvested">-- €</div>
                     </div>
                     <div>
-                        <div class="text-muted text-sm">P&L Totale</div>
+                        <div class="text-muted text-sm flex items-center gap-1">
+                            <span>P&L Totale</span>
+                            <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Guadagno o perdita complessivo (Valore Attuale - Capitale Investito).</span></span>
+                        </div>
                         <div class="text-xl font-bold" id="totalPnL">--</div>
                     </div>
                     <div>
-                        <div class="text-muted text-sm">Titoli Posseduti</div>
+                        <div class="text-muted text-sm flex items-center gap-1">
+                            <span>Titoli in Portafoglio</span>
+                            <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Numero di diverse società o ETF presenti nel tuo portafoglio.</span></span>
+                        </div>
                         <div class="text-xl font-bold" id="totalCount">--</div>
                     </div>
                 </div>
@@ -141,7 +153,7 @@
                     <div class="card" style="grid-column: 1;">
                         <div class="flex justify-between items-center mb-3">
                             <div class="text-sm text-secondary">
-                                💡 <em>Puoi modificare <strong>Quantità</strong> e <strong>Prezzo Acquisto</strong> direttamente nelle caselle qui sotto e poi cliccare "Salva".</em>
+                                💡 <em>Puoi modificare <strong>Quantità</strong> e <strong>Prezzo Acquisto</strong> direttamente nelle caselle qui sotto e poi cliccare "Salva Modifiche".</em>
                             </div>
                         </div>
                         <div class="table-container">
@@ -150,12 +162,48 @@
                                     <tr>
                                         <th>Ticker</th>
                                         <th>Nome Titolo</th>
-                                        <th class="text-right" style="width: 120px;">Quantità</th>
-                                        <th class="text-right" style="width: 150px;">Prezzo di Acquisto (€)</th>
-                                        <th class="text-right">Prezzo Attuale (€)</th>
-                                        <th class="text-right">Valore Totale (€)</th>
-                                        <th class="text-right">Profit / Loss (€)</th>
-                                        <th class="text-right">Profit / Loss (%)</th>
+                                        <th class="text-right" style="width: 120px;">
+                                            <span class="has-tooltip justify-end">
+                                                <span>Quantità</span>
+                                                <i class="info-badge">i</i>
+                                                <span class="tooltip-box">Numero di azioni/quote in tuo possesso</span>
+                                            </span>
+                                        </th>
+                                        <th class="text-right" style="width: 160px;">
+                                            <span class="has-tooltip justify-end">
+                                                <span>Prezzo di Acquisto</span>
+                                                <i class="info-badge">i</i>
+                                                <span class="tooltip-box">Prezzo medio unitario pagato al momento dell'acquisto (€)</span>
+                                            </span>
+                                        </th>
+                                        <th class="text-right">
+                                            <span class="has-tooltip justify-end">
+                                                <span>Prezzo Attuale</span>
+                                                <i class="info-badge">i</i>
+                                                <span class="tooltip-box">Quotazione di mercato in tempo reale (€)</span>
+                                            </span>
+                                        </th>
+                                        <th class="text-right">
+                                            <span class="has-tooltip justify-end">
+                                                <span>Controvalore</span>
+                                                <i class="info-badge">i</i>
+                                                <span class="tooltip-box">Quantità × Prezzo Attuale (€)</span>
+                                            </span>
+                                        </th>
+                                        <th class="text-right">
+                                            <span class="has-tooltip justify-end">
+                                                <span>P&L Netto (€)</span>
+                                                <i class="info-badge">i</i>
+                                                <span class="tooltip-box">Guadagno o perdita monetaria: (Prezzo Attuale - Prezzo Acquisto) × Quantità</span>
+                                            </span>
+                                        </th>
+                                        <th class="text-right">
+                                            <span class="has-tooltip justify-end">
+                                                <span>P&L %</span>
+                                                <i class="info-badge">i</i>
+                                                <span class="tooltip-box">Rendimento percentuale sul capitale investito</span>
+                                            </span>
+                                        </th>
                                         <th class="text-center" style="width: 80px;">Azioni</th>
                                     </tr>
                                 </thead>

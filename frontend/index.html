@@ -44,21 +44,56 @@
             <div class="content-wrapper" id="dashboardContent">
                 <!-- Stat Cards -->
                 <div class="stat-grid">
+                    <!-- Valore Totale -->
                     <div class="card stat-card">
-                        <div class="stat-label">💰 Valore Totale</div>
+                        <div class="stat-label">
+                            <span>💰 Valore Portafoglio</span>
+                            <span class="has-tooltip">
+                                <i class="info-badge">i</i>
+                                <span class="tooltip-box">Controvalore complessivo di tutte le azioni possedute ai prezzi di mercato correnti.</span>
+                            </span>
+                        </div>
                         <div class="stat-value text-primary font-mono" id="statTotalValue">-- €</div>
+                        <span class="stat-desc">Capitale totale attualmente investito</span>
                     </div>
+
+                    <!-- P&L Giornaliero -->
                     <div class="card stat-card">
-                        <div class="stat-label">📅 P&L Giornaliero</div>
+                        <div class="stat-label">
+                            <span>📅 P&L Giornaliero</span>
+                            <span class="has-tooltip">
+                                <i class="info-badge">i</i>
+                                <span class="tooltip-box"><strong>P&L (Profit & Loss) Giornaliero</strong>: Variazione di guadagno o perdita registrata oggi rispetto alla chiusura della seduta precedente.</span>
+                            </span>
+                        </div>
                         <div class="stat-value font-mono" id="statDailyPnL">--</div>
+                        <span class="stat-desc">Guadagno o perdita nella seduta odierna</span>
                     </div>
+
+                    <!-- P&L Totale -->
                     <div class="card stat-card">
-                        <div class="stat-label">📊 P&L Totale</div>
+                        <div class="stat-label">
+                            <span>📊 P&L Totale</span>
+                            <span class="has-tooltip">
+                                <i class="info-badge">i</i>
+                                <span class="tooltip-box"><strong>P&L Totale</strong>: Rendimento complessivo (in € e %) calcolato tra il prezzo medio di carico a cui hai comprato le azioni e il prezzo attuale.</span>
+                            </span>
+                        </div>
                         <div class="stat-value font-mono" id="statTotalPnL">--</div>
+                        <span class="stat-desc">Rendimento complessivo da inizio acquisto</span>
                     </div>
+
+                    <!-- Azioni Monitorate -->
                     <div class="card stat-card">
-                        <div class="stat-label">🎯 Azioni Monitorate</div>
+                        <div class="stat-label">
+                            <span>🎯 Titoli Monitorati</span>
+                            <span class="has-tooltip">
+                                <i class="info-badge">i</i>
+                                <span class="tooltip-box">Numero di azioni sotto osservazione continua con analisi tecnica e sentiment orario.</span>
+                            </span>
+                        </div>
                         <div class="stat-value text-primary font-mono" id="statStockCount">--</div>
+                        <span class="stat-desc">Azioni attive nel radar dell'IA</span>
                     </div>
                 </div>
 
@@ -66,7 +101,10 @@
                     <!-- Chart -->
                     <div class="card" id="chartCard">
                         <div class="card-header">
-                            <h2 class="card-title">📈 Andamento Portafoglio (Ultimi 30 Giorni)</h2>
+                            <div>
+                                <h2 class="card-title">📈 Andamento Portafoglio (Ultimi 30 Giorni)</h2>
+                                <p class="text-xs text-muted mt-1">Evoluzione temporale del valore totale degli investimenti</p>
+                            </div>
                         </div>
                         <div id="portfolioChart" style="width: 100%; height: 350px;"></div>
                     </div>
@@ -74,8 +112,11 @@
                     <!-- Recent Advice -->
                     <div class="card">
                         <div class="card-header">
-                            <h2 class="card-title">🧠 Ultimi Consigli LLM</h2>
-                            <a href="/static/advice.html" class="text-xs text-primary" style="text-decoration: none;">Tutti ➔</a>
+                            <div>
+                                <h2 class="card-title">🧠 Ultimi Consigli LLM</h2>
+                                <p class="text-xs text-muted mt-1">Sintesi Gemini 3.7 Flash</p>
+                            </div>
+                            <a href="/static/advice.html" class="text-xs text-primary" style="text-decoration: none; font-weight: 600;">Tutti ➔</a>
                         </div>
                         <div id="recentAdviceList" class="flex flex-col gap-3">
                             <div class="text-center text-muted py-4">Nessun consiglio recente</div>
@@ -86,7 +127,10 @@
                 <!-- Mini Table -->
                 <div class="card mt-4">
                     <div class="card-header">
-                        <h2 class="card-title">💼 Posizioni in Portafoglio</h2>
+                        <div>
+                            <h2 class="card-title">💼 Posizioni in Portafoglio</h2>
+                            <p class="text-xs text-muted mt-1">Riepilogo rapido delle azioni attualmente in tuo possesso</p>
+                        </div>
                         <a href="/static/portfolio.html" class="btn btn-ghost btn-sm">Gestisci Portafoglio ➔</a>
                     </div>
                     <div class="table-container">
@@ -95,9 +139,27 @@
                                 <tr>
                                     <th>Ticker</th>
                                     <th>Nome Titolo</th>
-                                    <th class="text-right">Prezzo Attuale</th>
-                                    <th class="text-right">Variazione %</th>
-                                    <th class="text-right">Profit / Loss</th>
+                                    <th class="text-right">
+                                        <span class="has-tooltip justify-end">
+                                            <span>Prezzo Attuale</span>
+                                            <i class="info-badge">i</i>
+                                            <span class="tooltip-box">Ultima quotazione registrata sul mercato</span>
+                                        </span>
+                                    </th>
+                                    <th class="text-right">
+                                        <span class="has-tooltip justify-end">
+                                            <span>Variazione 24h</span>
+                                            <i class="info-badge">i</i>
+                                            <span class="tooltip-box">Variazione percentuale di prezzo rispetto alla chiusura precedente</span>
+                                        </span>
+                                    </th>
+                                    <th class="text-right">
+                                        <span class="has-tooltip justify-end">
+                                            <span>Profit / Loss</span>
+                                            <i class="info-badge">i</i>
+                                            <span class="tooltip-box">Guadagno o perdita netta rispetto al tuo prezzo di acquisto</span>
+                                        </span>
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody id="holdingsTableBody">

@@ -32,9 +32,35 @@
             <div class="content-wrapper" id="adviceContent">
                 <!-- Market Summary -->
                 <div class="card mb-4 bg-gradient-to-r" style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.8), var(--surface-color));">
-                    <h3 class="card-title mb-2">Riassunto di Mercato</h3>
+                    <div class="flex justify-between items-center mb-2">
+                        <h3 class="card-title">🌐 Riassunto Globale del Mercato</h3>
+                        <span class="text-xs text-muted">Aggiornato da Gemini 3.7 Flash</span>
+                    </div>
                     <p id="marketSummaryText" class="text-secondary leading-relaxed">Caricamento in corso...</p>
                 </div>
+
+                <!-- Legenda Termini Finanziari -->
+                <div class="card mb-4" style="background: rgba(18, 20, 32, 0.7); border-left: 3px solid var(--primary-color);">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span style="font-size: 1.1rem;">💡</span>
+                        <h4 class="font-bold text-sm" style="margin: 0; color: var(--text-primary);">Come interpretare i segnali dell'IA</h4>
+                    </div>
+                    <div class="grid gap-3 text-xs text-secondary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+                        <div>
+                            <strong class="text-primary block mb-1">🎯 Target Price</strong>
+                            Prezzo obiettivo stimato dall'IA verso cui il titolo potrebbe dirigersi nel periodo indicato.
+                        </div>
+                        <div>
+                            <strong class="text-primary block mb-1">🛡️ Livello di Confidenza</strong>
+                            Grado di affidabilità (Bassa / Media / Alta) calcolato incrociando notizie e indicatori tecnici.
+                        </div>
+                        <div>
+                            <strong class="text-primary block mb-1">⏳ Timeframe (Orizzonte)</strong>
+                            Durata attesa dell'operazione: <em>Breve Termine</em> (giorni/settimane) o <em>Lungo Termine</em> (mesi/anni).
+                        </div>
+                    </div>
+                </div>
+
 
                 <!-- Filters -->
                 <div class="card mb-4 flex gap-4 items-end flex-wrap">

@@ -32,18 +32,29 @@
                 <form id="settingsForm">
                     <!-- Strategia -->
                     <div class="card mb-4">
-                        <h2 class="card-title mb-4">Strategia di Investimento</h2>
+                        <div class="card-header mb-2">
+                            <div>
+                                <h2 class="card-title">🎯 Strategia di Investimento & Rischio</h2>
+                                <p class="text-xs text-muted mt-1">Personalizza il comportamento dell'IA nell'elaborazione dei consigli</p>
+                            </div>
+                        </div>
                         <div class="grid gap-4" style="grid-template-columns: 1fr 1fr;">
                             <div class="form-group">
-                                <label>Orizzonte Temporale</label>
+                                <label class="flex items-center gap-1">
+                                    <span>Orizzonte Temporale</span>
+                                    <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box"><strong>Long Term</strong>: mira a stabilità e dividendi.<br><strong>Short Term</strong>: sfrutta oscillazioni rapide e news.</span></span>
+                                </label>
                                 <select id="strategyType">
-                                    <option value="long">Long Term (Cassettista)</option>
-                                    <option value="short">Short Term (Trading)</option>
-                                    <option value="mixed">Misto</option>
+                                    <option value="long">Long Term (Cassettista / Valore)</option>
+                                    <option value="short">Short Term (Trading / Momentum)</option>
+                                    <option value="mixed">Misto (Equilibrato)</option>
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label>Budget Totale Obiettivo (€)</label>
+                                <label class="flex items-center gap-1">
+                                    <span>Budget Totale Obiettivo (€)</span>
+                                    <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Dimensione target del tuo portafoglio per calcolare le percentuali di allocazione ottimali.</span></span>
+                                </label>
                                 <input type="number" id="targetBudget" min="0" step="1000">
                             </div>
                         </div>
@@ -59,7 +70,12 @@
 
                     <!-- Notifiche -->
                     <div class="card mb-4">
-                        <h2 class="card-title mb-4">Notifiche & Consigli</h2>
+                        <div class="card-header mb-2">
+                            <div>
+                                <h2 class="card-title">🔔 Notifiche & Invio Report</h2>
+                                <p class="text-xs text-muted mt-1">Configura gli orari di ricezione dei riassunti giornalieri su Telegram</p>
+                            </div>
+                        </div>
                         <div class="form-group">
                             <label>Frequenza Giornaliera Report</label>
                             <select id="reportFreq" style="max-width: 200px;">
@@ -70,7 +86,7 @@
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>Orari (HH:MM)</label>
+                            <label>Orari di Invio (HH:MM)</label>
                             <div id="timesContainer" class="flex gap-2 flex-wrap">
                                 <!-- Dynamic time inputs -->
                             </div>
@@ -82,9 +98,13 @@
 
                     <!-- Regole Alert -->
                     <div class="card mb-4">
-                        <div class="flex justify-between items-center mb-4">
-                            <h2 class="card-title">Regole Alert (Take Profit / Stop Loss)</h2>
+                        <div class="card-header mb-2">
+                            <div>
+                                <h2 class="card-title">⚡ Regole Alert Istantanee (Take Profit / Stop Loss)</h2>
+                                <p class="text-xs text-muted mt-1">Ricevi una notifica immediata quando un titolo supera una certa soglia di variazione</p>
+                            </div>
                         </div>
+
                         
                         <div class="flex gap-2 mb-4">
                             <input type="text" id="alertTicker" placeholder="Ticker" style="width:100px;">
