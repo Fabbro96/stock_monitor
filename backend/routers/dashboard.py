@@ -7,8 +7,9 @@ from backend.database import get_db
 from backend.models.portfolio import Holding
 from backend.models.stock import Stock
 
-from backend.models.alert import AlertRule
+from backend.models.settings import AlertRule
 from backend.models.advice import Advice
+
 from backend.services.market_data import MarketDataService
 from backend.routers.portfolio import get_summary
 
