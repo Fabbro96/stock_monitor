@@ -39,6 +39,10 @@ async def analyze_sentiment_job():
         logger.error(f"Errore durante analyze_sentiment_job: {e}")
 
 async def generate_advice_job():
+    if not MarketDataService.are_any_markets_open():
+        logger.info("Borse chiuse: job periodico generazione consigli saltato.")
+        return
+
     logger.info("Avvio job periodico: generazione 5 consigli AI con Gemini 3.7 Flash")
     try:
         async with async_session_maker() as session:
@@ -47,6 +51,7 @@ async def generate_advice_job():
             logger.info(f"Generati con successo {len(advices)} nuovi consigli finanziari.")
     except Exception as e:
         logger.error(f"Errore durante generate_advice_job: {e}")
+
 
 async def cleanup_old_data_job():
     logger.info("Avvio job pulizia dati storici obsoleti")

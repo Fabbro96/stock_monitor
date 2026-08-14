@@ -2,8 +2,14 @@ import logging
 import asyncio
 import time
 from datetime import datetime
-import pytz
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    import pytz
+    ZoneInfo = lambda tz_name: pytz.timezone(tz_name)
 import yfinance as yf
+
+
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.models.stock import Stock, PriceHistory
@@ -25,19 +31,30 @@ class MarketDataService:
 
     MARKET_HOURS = {
         'IT': {'open': '09:00', 'close': '17:30', 'tz': 'Europe/Rome'},
+        'EU': {'open': '09:00', 'close': '17:30', 'tz': 'Europe/Paris'},
         'US': {'open': '09:30', 'close': '16:00', 'tz': 'America/New_York'}
     }
 
     @staticmethod
     def is_market_open(market: str) -> bool:
-        if market not in MarketDataService.MARKET_HOURS:
-            return True
+        """
+        Verifica se uno specifico mercato (IT, EU, US) è aperto oggi e in questo momento.
+        """
+        market_key = (market or 'US').upper()
+        if market_key.startswith('EU'):
+            hours = MarketDataService.MARKET_HOURS['EU']
+        elif market_key == 'IT' or market_key.endswith('.MI'):
+            hours = MarketDataService.MARKET_HOURS['IT']
+        elif market_key in MarketDataService.MARKET_HOURS:
+            hours = MarketDataService.MARKET_HOURS[market_key]
+        else:
+            hours = MarketDataService.MARKET_HOURS['US']
         
-        hours = MarketDataService.MARKET_HOURS[market]
-        tz = pytz.timezone(hours['tz'])
+        tz = ZoneInfo(hours['tz'])
         now = datetime.now(tz)
+
         
-        # Weekend
+        # Sabato (5) o Domenica (6) -> Chiuso
         if now.weekday() > 4:
             return False
             
@@ -45,6 +62,27 @@ class MarketDataService:
         close_time = datetime.strptime(hours['close'], '%H:%M').time()
         
         return open_time <= now.time() <= close_time
+
+    @staticmethod
+    def are_any_markets_open() -> bool:
+        """
+        Verifica se almeno uno dei mercati finanziari supportati (IT, EU, US) è attualmente aperto.
+        """
+        return any(MarketDataService.is_market_open(m) for m in ['IT', 'EU', 'US'])
+
+    @staticmethod
+    def is_ticker_market_open(ticker: str) -> bool:
+        """
+        Determina il mercato dal suffisso del ticker e verifica se è aperto.
+        """
+        t = (ticker or '').upper()
+        if t.endswith('.MI'):
+            return MarketDataService.is_market_open('IT')
+        elif any(t.endswith(s) for s in ['.DE', '.AS', '.PA', '.MC', '.BR', '.VI', '.LS']):
+            return MarketDataService.is_market_open('EU')
+        else:
+            return MarketDataService.is_market_open('US')
+
 
     @staticmethod
     async def fetch_current_price(ticker: str) -> dict:

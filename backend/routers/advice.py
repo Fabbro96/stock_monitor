@@ -8,8 +8,10 @@ from backend.database import get_db
 from backend.models.advice import Advice
 from backend.models.stock import Stock
 from backend.services.advisor import AdvisorService
+from backend.services.market_data import MarketDataService
 
 router = APIRouter(prefix="/api/advice", tags=["advice"])
+
 
 @router.get("/")
 async def list_advices(
@@ -89,7 +91,13 @@ async def follow_advice(advice_id: int, db: AsyncSession = Depends(get_db)):
     return {"status": "success", "followed": advice.followed}
 
 @router.post("/generate")
-async def generate_advice(db: AsyncSession = Depends(get_db)):
+async def generate_advice(force: bool = Query(False), db: AsyncSession = Depends(get_db)):
+    if not force and not MarketDataService.are_any_markets_open():
+        raise HTTPException(
+            status_code=400,
+            detail="I mercati finanziari sono attualmente chiusi (weekend o fuori orario di negoziazione). L'IA non genera consigli a borsa chiusa."
+        )
     advisor = AdvisorService()
-    advices = await advisor.generate_advice(db)
+    advices = await advisor.generate_advice(db, force=force)
     return {"status": "success", "generated_count": len(advices), "advices": advices}
+

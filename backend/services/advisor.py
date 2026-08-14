@@ -11,6 +11,7 @@ from backend.models.sentiment import Sentiment
 from backend.models.settings import UserSettings
 from backend.models.advice import Advice
 from backend.services.sentiment import SentimentService
+from backend.services.market_data import MarketDataService
 from backend.config import settings
 
 logger = logging.getLogger(__name__)
@@ -24,8 +25,14 @@ class AdvisorService:
             logger.warning("GEMINI_API_KEY non configurata.")
         self.sentiment_service = SentimentService()
 
-    async def generate_advice(self, db_session: AsyncSession) -> list[dict]:
+    async def generate_advice(self, db_session: AsyncSession, force: bool = False) -> list[dict]:
+        # 0. Verifica se i mercati finanziari sono aperti
+        if not force and not MarketDataService.are_any_markets_open():
+            logger.info("Borse chiuse: generazione consigli IA saltata (nessun mercato aperto).")
+            return []
+
         # 1. Recupera titoli monitorati
+
         result = await db_session.execute(select(Stock).where(Stock.is_active == True))
         stocks = result.scalars().all()
         if not stocks:

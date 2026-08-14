@@ -26,8 +26,15 @@
                     <button class="mobile-toggle">☰</button>
                     <h1 class="page-title">Consigli dell'IA</h1>
                 </div>
-                <button class="btn btn-primary" id="btnGenerate">Genera Analisi Ora</button>
+                <div class="flex items-center gap-3">
+                    <div id="marketStatusBadge" class="status-indicator text-xs font-semibold px-3 py-1 rounded bg-[rgba(255,255,255,0.04)] border border-border-color">
+                        <span class="status-dot closed" id="marketDot"></span>
+                        <span id="marketStatusText">Borse: Controllo...</span>
+                    </div>
+                    <button class="btn btn-primary" id="btnGenerate">Genera Analisi Ora</button>
+                </div>
             </header>
+
 
             <div class="content-wrapper" id="adviceContent">
                 <!-- Market Summary -->

@@ -32,8 +32,10 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
     # 4. Market status
     market_status = {
         market: "OPEN" if MarketDataService.is_market_open(market) else "CLOSED"
-        for market in ['IT', 'US']
+        for market in ['IT', 'EU', 'US']
     }
+    market_status["ANY_OPEN"] = "OPEN" if MarketDataService.are_any_markets_open() else "CLOSED"
+
     
     # 5. Top movers - Simplified, in real life we'd calculate from today's price histories
     top_movers = {"gainers": [], "losers": []}

@@ -110,8 +110,39 @@ window.toggleFollow = async (id) => {
   }
 };
 
+const checkMarketStatus = async () => {
+
+  try {
+    const data = await api.getDashboard();
+    const marketStatus = data.market_status || {};
+    const anyOpen = marketStatus.ANY_OPEN === 'OPEN';
+    const dot = document.getElementById('marketDot');
+    const text = document.getElementById('marketStatusText');
+    const btn = document.getElementById('btnGenerate');
+
+    if (dot && text) {
+      if (anyOpen) {
+        dot.className = 'status-dot open';
+        text.textContent = '🟢 Borse Aperte';
+        if (btn) {
+          btn.title = 'Genera nuova analisi IA per i titoli monitorati';
+        }
+      } else {
+        dot.className = 'status-dot closed';
+        text.textContent = '🔴 Borse Chiuse';
+        if (btn) {
+          btn.title = 'I mercati sono chiusi. L\'IA genera consigli solo a borse aperte.';
+        }
+      }
+    }
+  } catch(e) {
+    console.error('Errore recupero stato mercati', e);
+  }
+};
+
 document.addEventListener('DOMContentLoaded', () => {
   loadAdvice(1);
+  checkMarketStatus();
 
   document.getElementById('btnLoadMore').addEventListener('click', () => {
     currentPage++;
@@ -139,9 +170,11 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast('Analisi generata con successo!', 'success');
       loadAdvice(1);
     } catch(e) {
-      showToast('Errore durante la generazione dell\'analisi', 'error');
+      const errorMsg = e.message || 'I mercati finanziari sono attualmente chiusi. L\'IA non genera consigli a borsa chiusa.';
+      showToast(errorMsg, 'error');
     } finally {
       hideLoading('adviceContent');
     }
   });
 });
+
