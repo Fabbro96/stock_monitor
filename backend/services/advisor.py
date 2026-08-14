@@ -101,11 +101,16 @@ class AdvisorService:
         advices_created = []
         now_utc = datetime.now(timezone.utc)
 
+        # Stock ID di riferimento per compatibilità schema database
+        it_primary_stock = next((s for s in stocks if s.ticker.upper().endswith('.MI') or (s.market and s.market.upper() == 'IT')), stocks[0] if stocks else None)
+        us_primary_stock = next((s for s in stocks if not s.ticker.upper().endswith('.MI')), stocks[0] if stocks else None)
+
         # Elabora Blocco Borsa Italiana
         it_data = response_json.get('borsa_italiana')
         if it_data:
             stocks_json_str = json.dumps(it_data.get('stocks_analysis', []), ensure_ascii=False)
             adv_it = Advice(
+                stock_id=it_primary_stock.id if it_primary_stock else None,
                 market="IT",
                 title=it_data.get('title', 'Borsa Italiana (Piazza Affari)'),
                 action=it_data.get('action', 'MANTENIMENTO').upper(),
@@ -136,6 +141,7 @@ class AdvisorService:
         if us_data:
             stocks_json_str = json.dumps(us_data.get('stocks_analysis', []), ensure_ascii=False)
             adv_us = Advice(
+                stock_id=us_primary_stock.id if us_primary_stock else None,
                 market="US",
                 title=us_data.get('title', 'Borsa Americana (Wall Street / S&P500 & Nasdaq)'),
                 action=us_data.get('action', 'MANTENIMENTO').upper(),
@@ -163,6 +169,7 @@ class AdvisorService:
 
         await db_session.commit()
         return advices_created
+
 
     def _build_macro_prompt(self, italian_stocks: list, us_stocks: list, user_settings: dict) -> str:
         return f"""
