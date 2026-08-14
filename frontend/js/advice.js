@@ -2,63 +2,133 @@ import { api } from './api.js';
 import { formatCurrency, formatDateTime, showLoading, hideLoading, showToast } from './app.js';
 
 let currentPage = 1;
-let currentFilters = { action: '', q: '' };
+let currentFilters = { market: '', action: '', q: '' };
 
 const renderAdviceCard = (advice) => {
   const isFollowed = advice.followed ? 'checked' : '';
-  const actionLabel = advice.action === 'BUY' ? '🟢 COMPRARE (BUY)' : (advice.action === 'SELL' ? '🔴 VENDERE (SELL)' : '🟡 MANTENERE (HOLD)');
-  const badgeClass = advice.action === 'BUY' ? 'badge-buy' : (advice.action === 'SELL' ? 'badge-sell' : 'badge-hold');
-  
+  const isIT = advice.market === 'IT';
+  const flag = isIT ? '🇮🇹' : '🇺🇸';
+  const marketBadgeColor = isIT ? 'rgba(16, 185, 129, 0.10)' : 'rgba(59, 130, 246, 0.10)';
+  const marketBorderColor = isIT ? 'rgba(16, 185, 129, 0.5)' : 'rgba(59, 130, 246, 0.5)';
+
+  let actionBadge = 'badge-hold';
+  let actionText = '🟡 MANTENIMENTO';
+  const act = (advice.action || '').toUpperCase();
+  if (act.includes('ACCUMULO') || act.includes('BUY')) {
+    actionBadge = 'badge-buy';
+    actionText = '🟢 ACCUMULO / BUY';
+  } else if (act.includes('PROFITTO') || act.includes('SELL') || act.includes('ALLEGGERIMENTO')) {
+    actionBadge = 'badge-sell';
+    actionText = '🔴 PRESA PROFITTO / SELL';
+  } else if (act.includes('PRUDENZA')) {
+    actionBadge = 'badge-hold';
+    actionText = '🛡️ PRUDENZA';
+  }
+
+  // Stocks analysis table
+  const stocks = Array.isArray(advice.stocks_analysis) ? advice.stocks_analysis : [];
+  let stocksHtml = '';
+  if (stocks.length > 0) {
+    stocksHtml = `
+      <div class="mt-4 pt-4 border-t border-border-color">
+        <h4 class="text-sm font-bold mb-3 text-primary flex items-center gap-2">
+          <span>📊 Focus & Raccomandazioni sui Titoli ${flag}</span>
+        </h4>
+        <div class="table-container border border-border-color rounded">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 180px;">Ticker & Titolo</th>
+                <th class="text-center" style="width: 120px;">Azione</th>
+                <th class="text-right" style="width: 140px;">Target Price</th>
+                <th>Razionale & Note Operative</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${stocks.map(s => {
+                const sAct = (s.action || 'HOLD').toUpperCase();
+                const sBadge = sAct === 'BUY' ? 'badge-buy' : (sAct === 'SELL' ? 'badge-sell' : 'badge-hold');
+                const sLabel = sAct === 'BUY' ? '🟢 BUY' : (sAct === 'SELL' ? '🔴 SELL' : '🟡 HOLD');
+                return `
+                  <tr>
+                    <td>
+                      <div class="font-bold text-primary">${s.ticker}</div>
+                      <div class="text-xs text-muted">${s.name || ''}</div>
+                    </td>
+                    <td class="text-center">
+                      <span class="badge ${sBadge}">${sLabel}</span>
+                    </td>
+                    <td class="text-right font-mono font-bold text-primary">
+                      ${s.target_price ? formatCurrency(s.target_price) : '--'}
+                    </td>
+                    <td class="text-sm text-secondary leading-relaxed">
+                      ${s.note || s.reasoning || '--'}
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
   return `
-    <div class="card" id="advice-${advice.id}">
-        <div class="flex justify-between items-start mb-3">
-            <div>
-                <div class="flex items-center gap-3 mb-1">
-                    <h3 class="text-lg font-bold">${advice.ticker}</h3>
-                    <span class="badge ${badgeClass}">${actionLabel}</span>
-                </div>
-                <div class="text-xs text-muted">Generato: ${formatDateTime(advice.timestamp || advice.createdAt)}</div>
-            </div>
-            <div class="flex items-center gap-2 text-sm bg-[rgba(255,255,255,0.03)] px-3 py-1 rounded border border-border-color">
-                <input type="checkbox" id="cb-${advice.id}" ${isFollowed} onchange="window.toggleFollow(${advice.id})">
-                <label for="cb-${advice.id}" class="mb-0 cursor-pointer text-xs font-semibold">Segnato come Seguito</label>
-            </div>
+    <div class="card mb-4" id="advice-${advice.id}" style="border-top: 3px solid ${marketBorderColor}; background: linear-gradient(180deg, ${marketBadgeColor} 0%, var(--surface-color) 45px);">
+      <!-- Top header -->
+      <div class="flex justify-between items-start mb-4 flex-wrap gap-2">
+        <div>
+          <div class="flex items-center gap-3 mb-1">
+            <span style="font-size: 1.6rem;">${flag}</span>
+            <h3 class="text-xl font-bold">${advice.title || (isIT ? 'Borsa Italiana (Piazza Affari)' : 'Borsa Americana (Wall Street)')}</h3>
+            <span class="badge ${actionBadge}">${actionText}</span>
+          </div>
+          <div class="text-xs text-muted">Analisi strategica: ${formatDateTime(advice.timestamp)}</div>
         </div>
-        
-        <p class="mb-4 text-primary leading-relaxed" style="font-size: 0.95rem;">${advice.reasoning}</p>
-        
-        <div class="flex gap-4 text-sm bg-[var(--bg-color)] p-3 rounded border border-border-color mt-3 flex-wrap">
-            ${advice.targetPrice ? `
-            <div>
-                <span class="text-muted block text-xs flex items-center gap-1">
-                    Target Price
-                    <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Prezzo obiettivo stimato dall'IA</span></span>
-                </span>
-                <span class="font-bold text-primary">${formatCurrency(advice.targetPrice)}</span>
-            </div>` : ''}
-            
-            ${advice.confidence ? `
-            <div>
-                <span class="text-muted block text-xs flex items-center gap-1">
-                    Confidenza
-                    <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Grado di attendibilità dell'analisi</span></span>
-                </span>
-                <span class="font-bold">${advice.confidence}</span>
-            </div>` : ''}
-            
-            ${advice.timeframe ? `
-            <div>
-                <span class="text-muted block text-xs flex items-center gap-1">
-                    Orizzonte
-                    <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Orizzonte temporale raccomandato</span></span>
-                </span>
-                <span class="font-bold">${advice.timeframe}</span>
-            </div>` : ''}
+        <div class="flex items-center gap-2 text-sm bg-[rgba(255,255,255,0.03)] px-3 py-1.5 rounded border border-border-color">
+          <input type="checkbox" id="cb-${advice.id}" ${isFollowed} onchange="window.toggleFollow(${advice.id})">
+          <label for="cb-${advice.id}" class="mb-0 cursor-pointer text-xs font-semibold">Segnato come Letto</label>
         </div>
+      </div>
+
+      <!-- Overview Section -->
+      ${advice.overview ? `
+      <div class="mb-4">
+        <h4 class="text-xs font-bold text-muted uppercase tracking-wider mb-1">🌐 Quadro & Scenario Generale</h4>
+        <p class="text-primary leading-relaxed" style="font-size: 0.95rem;">${advice.overview}</p>
+      </div>` : ''}
+
+      <!-- Strategy Section -->
+      ${advice.strategy ? `
+      <div class="mb-4 bg-[var(--bg-color)] p-4 rounded border border-border-color">
+        <h4 class="text-xs font-bold text-muted uppercase tracking-wider mb-1">🎯 Strategia Operativa & Piano d'Azione</h4>
+        <p class="text-primary leading-relaxed" style="font-size: 0.95rem;">${advice.strategy}</p>
+      </div>` : ''}
+
+      <!-- Stocks Breakdown -->
+      ${stocksHtml}
+
+      <!-- Risks Section -->
+      ${advice.risks ? `
+      <div class="mt-4 p-3 rounded" style="background: rgba(239, 68, 68, 0.08); border-left: 3px solid var(--danger-color);">
+        <h4 class="text-xs font-bold mb-1 text-danger flex items-center gap-1">
+          <span>⚠️ Punti di Attenzione & Rischi Chiave</span>
+        </h4>
+        <p class="text-xs text-secondary leading-relaxed mb-0">${advice.risks}</p>
+      </div>` : ''}
+
+      <!-- Footer Info -->
+      <div class="flex gap-4 text-xs text-muted mt-4 pt-3 border-t border-border-color flex-wrap items-center justify-between">
+        <div class="flex gap-4">
+          ${advice.confidence ? `<div>Confidenza IA: <strong class="text-primary">${advice.confidence}</strong></div>` : ''}
+          ${advice.timeframe ? `<div>Orizzonte: <strong class="text-primary">${advice.timeframe}</strong></div>` : ''}
+        </div>
+        <div class="text-xs text-muted">Gemini 3.7 Flash</div>
+      </div>
     </div>
   `;
 };
-
 
 const loadAdvice = async (page = 1, append = false) => {
   try {
@@ -67,28 +137,40 @@ const loadAdvice = async (page = 1, append = false) => {
     const params = { page, limit: 10, ...currentFilters };
     const response = await api.getAdvice(params).catch(() => []);
     
-    // Assume response is array or { data: [], summary: "..." }
     const adviceList = Array.isArray(response) ? response : (response.data || []);
     const summary = response.summary || '';
 
     if (page === 1 && summary) {
       document.getElementById('marketSummaryText').textContent = summary;
     } else if (page === 1) {
-      document.getElementById('marketSummaryText').textContent = "Nessun riassunto di mercato disponibile.";
+      document.getElementById('marketSummaryText').textContent = "Scenario suddiviso per Borsa Italiana (Piazza Affari) e Borsa Americana (Wall Street).";
     }
 
     const listEl = document.getElementById('adviceList');
     if (!append) listEl.innerHTML = '';
 
-    if (adviceList.length === 0 && !append) {
-      listEl.innerHTML = '<div class="text-center text-muted py-8">Nessun consiglio trovato. Genera un\'analisi o cambia i filtri.</div>';
+    // Filter locally if search query is entered
+    let filtered = adviceList;
+    if (currentFilters.q) {
+      const query = currentFilters.q.toUpperCase();
+      filtered = filtered.filter(adv => {
+        const titleMatch = (adv.title || '').toUpperCase().includes(query);
+        const overviewMatch = (adv.overview || '').toUpperCase().includes(query);
+        const stocksMatch = (adv.stocks_analysis || []).some(s => 
+          (s.ticker || '').toUpperCase().includes(query) || (s.name || '').toUpperCase().includes(query)
+        );
+        return titleMatch || overviewMatch || stocksMatch;
+      });
+    }
+
+    if (filtered.length === 0 && !append) {
+      listEl.innerHTML = '<div class="text-center text-muted py-8">Nessuna analisi di mercato trovata per i filtri selezionati. Clicca "Genera Analisi Ora" per elaborare i nuovi blocchi di borsa.</div>';
       document.getElementById('btnLoadMore').style.display = 'none';
       return;
     }
 
-    listEl.innerHTML += adviceList.map(renderAdviceCard).join('');
+    listEl.innerHTML += filtered.map(renderAdviceCard).join('');
     
-    // Basic pagination logic
     document.getElementById('btnLoadMore').style.display = adviceList.length === 10 ? 'block' : 'none';
 
   } catch (error) {
@@ -104,14 +186,12 @@ window.toggleFollow = async (id) => {
     showToast('Stato aggiornato', 'success');
   } catch(e) {
     showToast('Errore aggiornamento', 'error');
-    // Revert checkbox
     const cb = document.getElementById(`cb-${id}`);
     if(cb) cb.checked = !cb.checked;
   }
 };
 
 const checkMarketStatus = async () => {
-
   try {
     const data = await api.getDashboard();
     const marketStatus = data.market_status || {};
@@ -125,7 +205,7 @@ const checkMarketStatus = async () => {
         dot.className = 'status-dot open';
         text.textContent = '🟢 Borse Aperte';
         if (btn) {
-          btn.title = 'Genera nuova analisi IA per i titoli monitorati';
+          btn.title = 'Genera nuova analisi macro per Borsa Italiana e Americana';
         }
       } else {
         dot.className = 'status-dot closed';
@@ -152,11 +232,13 @@ document.addEventListener('DOMContentLoaded', () => {
   let debounceTimer;
   const applyFilters = () => {
     currentPage = 1;
+    currentFilters.market = document.getElementById('filterMarket').value;
     currentFilters.action = document.getElementById('filterAction').value;
     currentFilters.q = document.getElementById('filterSearch').value;
     loadAdvice(1);
   };
 
+  document.getElementById('filterMarket').addEventListener('change', applyFilters);
   document.getElementById('filterAction').addEventListener('change', applyFilters);
   document.getElementById('filterSearch').addEventListener('input', () => {
     clearTimeout(debounceTimer);
@@ -167,7 +249,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       showLoading('adviceContent');
       await api.generateAdvice();
-      showToast('Analisi generata con successo!', 'success');
+      showToast('Analisi per Borsa Italiana e Americana generata con successo!', 'success');
       loadAdvice(1);
     } catch(e) {
       const errorMsg = e.message || 'I mercati finanziari sono attualmente chiusi. L\'IA non genera consigli a borsa chiusa.';
@@ -177,4 +259,3 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
-

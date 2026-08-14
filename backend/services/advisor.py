@@ -28,11 +28,10 @@ class AdvisorService:
     async def generate_advice(self, db_session: AsyncSession, force: bool = False) -> list[dict]:
         # 0. Verifica se i mercati finanziari sono aperti
         if not force and not MarketDataService.are_any_markets_open():
-            logger.info("Borse chiuse: generazione consigli IA saltata (nessun mercato aperto).")
+            logger.info("Borse chiuse: generazione analisi saltata (nessun mercato aperto).")
             return []
 
         # 1. Recupera titoli monitorati
-
         result = await db_session.execute(select(Stock).where(Stock.is_active == True))
         stocks = result.scalars().all()
         if not stocks:
@@ -47,10 +46,11 @@ class AdvisorService:
         result = await db_session.execute(select(UserSettings).limit(1))
         user_settings = result.scalars().first()
         
-        # 4. Raccogli dati tecnici e notizie per ciascun titolo in parallelo
-        stocks_rich_data = []
+        # 4. Raccogli dati tecnici e notizie per ciascun titolo
+        italian_stocks = []
+        us_stocks = []
+
         for s in stocks:
-            # Ultimi 2 prezzi storici per calcolare variazione recente
             ph_res = await db_session.execute(
                 select(PriceHistory)
                 .where(PriceHistory.stock_id == s.id)
@@ -62,114 +62,179 @@ class AdvisorService:
             prev_price = prices[1].close if len(prices) > 1 else last_price
             day_change_pct = ((last_price - prev_price) / prev_price * 100) if (last_price and prev_price) else 0.0
 
-            # Ultime notizie e sentiment
             news_items = await self.sentiment_service.get_combined_market_context(s.ticker, s.name or s.ticker)
             top_headlines = [n['title'] for n in news_items[:3]]
 
-            stocks_rich_data.append({
+            # Trova se posseduto in portafoglio
+            holding = next((h for h in holdings if h.stock_id == s.id), None)
+
+            stock_info = {
                 "ticker": s.ticker,
-                "name": s.name,
-                "market": s.market,
+                "name": s.name or s.ticker,
                 "current_price": round(last_price, 2) if last_price else "N/A",
                 "day_change_pct": round(day_change_pct, 2),
+                "in_portfolio": holding is not None,
+                "quantity_owned": holding.quantity if holding else 0,
+                "avg_purchase_price": holding.avg_purchase_price if holding else None,
                 "recent_news": top_headlines
-            })
+            }
 
-        # Costruisci portafoglio aggregato
-        portfolio_summary = []
-        for h in holdings:
-            st = await db_session.get(Stock, h.stock_id)
-            portfolio_summary.append({
-                "ticker": st.ticker if st else "N/A",
-                "name": st.name if st else "N/A",
-                "quantity": h.quantity,
-                "avg_purchase_price": h.avg_purchase_price
-            })
+            if s.ticker.upper().endswith('.MI') or (s.market and s.market.upper() == 'IT'):
+                italian_stocks.append(stock_info)
+            else:
+                us_stocks.append(stock_info)
 
         settings_summary = {
             "strategy": user_settings.strategy if user_settings else "mixed",
             "total_budget": user_settings.total_budget if user_settings else 10000.0,
-            "target_markets": user_settings.markets.split(",") if (user_settings and user_settings.markets) else ["IT", "US", "EU"]
+            "target_markets": user_settings.markets.split(",") if (user_settings and user_settings.markets) else ["IT", "US"]
         }
 
         # 5. Chiama Gemini
-        prompt = self._build_prompt(stocks_rich_data, portfolio_summary, settings_summary)
+        prompt = self._build_macro_prompt(italian_stocks, us_stocks, settings_summary)
         response_json = await asyncio.to_thread(self._call_gemini, prompt)
         
-        if not response_json or 'advices' not in response_json:
+        if not response_json:
             logger.error("Risposta vuota o formato non valido da Gemini.")
             return []
-            
+
         advices_created = []
-        for adv in response_json['advices']:
-            stock = next((s for s in stocks if s.ticker.upper() == adv.get('ticker', '').upper()), None)
-            if not stock:
-                continue
-                
-            advice = Advice(
-                stock_id=stock.id,
-                action=adv.get('action', 'HOLD').upper(),
-                reasoning=adv.get('reasoning', ''),
-                confidence=adv.get('confidence', 'MEDIUM').upper(),
-                target_price=adv.get('target_price'),
-                suggested_quantity=adv.get('suggested_quantity'),
-                timeframe=adv.get('timeframe', 'Medio Termine')
+        now_utc = datetime.now(timezone.utc)
+
+        # Elabora Blocco Borsa Italiana
+        it_data = response_json.get('borsa_italiana')
+        if it_data:
+            stocks_json_str = json.dumps(it_data.get('stocks_analysis', []), ensure_ascii=False)
+            adv_it = Advice(
+                market="IT",
+                title=it_data.get('title', 'Borsa Italiana (Piazza Affari)'),
+                action=it_data.get('action', 'MANTENIMENTO').upper(),
+                overview=it_data.get('overview', ''),
+                reasoning=it_data.get('strategy', ''),
+                stocks_json=stocks_json_str,
+                risks=it_data.get('risks', ''),
+                confidence=it_data.get('confidence', 'MEDIUM').upper(),
+                timeframe=it_data.get('timeframe', 'Medio Termine'),
+                timestamp=now_utc
             )
-            db_session.add(advice)
+            db_session.add(adv_it)
             advices_created.append({
-                "id": None, # Will be committed
-                "ticker": stock.ticker,
-                "name": stock.name,
-                "action": advice.action,
-                "reasoning": advice.reasoning,
-                "confidence": advice.confidence,
-                "targetPrice": advice.target_price,
-                "suggestedQuantity": advice.suggested_quantity,
-                "timeframe": advice.timeframe,
-                "followed": False,
-                "timestamp": str(datetime.now(timezone.utc))
+                "market": "IT",
+                "title": adv_it.title,
+                "action": adv_it.action,
+                "overview": adv_it.overview,
+                "strategy": adv_it.reasoning,
+                "stocks_analysis": it_data.get('stocks_analysis', []),
+                "risks": adv_it.risks,
+                "confidence": adv_it.confidence,
+                "timeframe": adv_it.timeframe,
+                "timestamp": str(now_utc)
             })
-            
+
+        # Elabora Blocco Borsa Americana
+        us_data = response_json.get('borsa_americana')
+        if us_data:
+            stocks_json_str = json.dumps(us_data.get('stocks_analysis', []), ensure_ascii=False)
+            adv_us = Advice(
+                market="US",
+                title=us_data.get('title', 'Borsa Americana (Wall Street / S&P500 & Nasdaq)'),
+                action=us_data.get('action', 'MANTENIMENTO').upper(),
+                overview=us_data.get('overview', ''),
+                reasoning=us_data.get('strategy', ''),
+                stocks_json=stocks_json_str,
+                risks=us_data.get('risks', ''),
+                confidence=us_data.get('confidence', 'MEDIUM').upper(),
+                timeframe=us_data.get('timeframe', 'Medio Termine'),
+                timestamp=now_utc
+            )
+            db_session.add(adv_us)
+            advices_created.append({
+                "market": "US",
+                "title": adv_us.title,
+                "action": adv_us.action,
+                "overview": adv_us.overview,
+                "strategy": adv_us.reasoning,
+                "stocks_analysis": us_data.get('stocks_analysis', []),
+                "risks": adv_us.risks,
+                "confidence": adv_us.confidence,
+                "timeframe": adv_us.timeframe,
+                "timestamp": str(now_utc)
+            })
+
         await db_session.commit()
         return advices_created
 
-    def _build_prompt(self, stocks_data: list, portfolio: list, user_settings: dict) -> str:
+    def _build_macro_prompt(self, italian_stocks: list, us_stocks: list, user_settings: dict) -> str:
         return f"""
-Sei un analista quantitativo e consulente finanziario senior.
-Analizza il portafoglio dell'utente, i titoli monitorati e il contesto di mercato recente con le relative notizie.
+Sei un Chief Investment Officer e Senior Quantitative Market Strategist.
+Non devi limitarti a singoli consigli frammentati per azione, ma devi produrre DUE GRANDI BLOCCHI STRATEGICI GENERALI DI MERCATO:
+1. 🇮🇹 BORSA ITALIANA (Piazza Affari / FTSE MIB)
+2. 🇺🇸 BORSA AMERICANA (Wall Street / S&P 500 & Nasdaq)
 
-Dati Titoli Monitorati con Notizie e Variazioni:
-{json.dumps(stocks_data, ensure_ascii=False, indent=2)}
+---
+DATI MERCATO ITALIANO (Titoli Monitorati & Portafoglio Utente):
+{json.dumps(italian_stocks, ensure_ascii=False, indent=2)}
 
-Portafoglio Attuale Utente:
-{json.dumps(portfolio, ensure_ascii=False, indent=2)}
+DATI MERCATO AMERICANO (Titoli Monitorati & Portafoglio Utente):
+{json.dumps(us_stocks, ensure_ascii=False, indent=2)}
 
+PROFILO UTENTE:
+- Strategia: {user_settings.get('strategy', 'mixed')}
+- Budget Target: {user_settings.get('total_budget', 10000)} €
 
-Profilo & Strategia Utente:
-- Orizzonte d'investimento: {user_settings.get('strategy', 'mixed')} (short term, long term, o mixed)
-- Capitale / Budget target: {user_settings.get('total_budget', 10000)} €
-- Mercati d'interesse: {user_settings.get('target_markets', ['IT', 'US'])}
+---
+ISTRUZIONI PER CIASCUN BLOCCO DI BORSA:
+1. **Quadro Generale (overview)**: Analisi dello scenario macroeconomico, sentiment generale, politica monetaria (BCE/Fed), trimestrali e trend degli indici.
+2. **Strategia Operativa Generale (strategy)**: Piano d'azione aggregato per quel mercato (es. se privilegiare accumulo, prese di profitto, difesa o titoli ciclici/growth/value).
+3. **Analisi Titoli (stocks_analysis)**: Per ciascun titolo monitorato/posseduto di quel mercato, fornisci:
+   - ticker e nome
+   - azione raccomandata (BUY / HOLD / SELL)
+   - target price stimato (€ o $)
+   - nota operativa sintetica e motivata
+4. **Punti di Attenzione & Rischi (risks)**: Catalizzatori e rischi chiave da monitorare nel breve/medio periodo.
+5. **Azione di Fondo**: 'ACCUMULO' (BUY), 'MANTENIMENTO' (HOLD), 'PRESA_PROFITTO' (SELL) o 'PRUDENZA'.
 
-Istruzioni:
-1. Fornisci ESATTAMENTE 5 consigli finanziari concreti e motivati sui titoli monitorati.
-2. Considera il prezzo di carico dell'utente (se già possiede il titolo) per valutare prese di profitto (SELL), accumuli (BUY), o stop loss/mantenimento (HOLD).
-3. Integra le notizie recenti e i trend per spiegare il razionale (reasoning) in italiano chiaro e professionale.
-4. Rispetta rigorosamente il formato JSON specificato qui sotto.
-
-Rispondi ESCLUSIVAMENTE in JSON valido con questa struttura:
+Rispondi ESCLUSIVAMENTE in formato JSON con la seguente struttura:
 {{
-    "market_summary": "Sintesi chiara dello scenario macro e dell'andamento odierno dei mercati d'interesse",
-    "advices": [
-        {{
-            "ticker": "LDO.MI",
-            "action": "BUY" | "SELL" | "HOLD",
-            "reasoning": "Spiegazione approfondita basata su notizie, valutazioni e prezzo d'acquisto",
-            "confidence": "HIGH" | "MEDIUM" | "LOW",
-            "target_price": 24.50,
-            "suggested_quantity": 25,
-            "timeframe": "Breve Termine" | "Lungo Termine"
-        }}
-    ]
+    "market_summary": "Sintesi macro globale brevissima",
+    "borsa_italiana": {{
+        "title": "Borsa Italiana (Piazza Affari)",
+        "market": "IT",
+        "action": "ACCUMULO" | "MANTENIMENTO" | "PRESA_PROFITTO" | "PRUDENZA",
+        "overview": "Approfondimento esaustivo sullo scenario italiano, FTSE MIB, tassi BCE, settore bancario, energetico e utilities...",
+        "strategy": "Strategia complessiva per il mercato italiano in base al profilo utente...",
+        "stocks_analysis": [
+            {{
+                "ticker": "ENEL.MI",
+                "name": "Enel S.p.A.",
+                "action": "BUY" | "HOLD" | "SELL",
+                "target_price": 7.40,
+                "note": "Spiegazione sintetica basata su trend e notizie recenti"
+            }}
+        ],
+        "risks": "Fattori di rischio specifici per l'Italia...",
+        "confidence": "HIGH" | "MEDIUM" | "LOW",
+        "timeframe": "Breve Termine" | "Medio Termine" | "Lungo Termine"
+    }},
+    "borsa_americana": {{
+        "title": "Borsa Americana (Wall Street / S&P 500 & Nasdaq)",
+        "market": "US",
+        "action": "ACCUMULO" | "MANTENIMENTO" | "PRESA_PROFITTO" | "PRUDENZA",
+        "overview": "Approfondimento esaustivo sullo scenario USA, Wall Street, tassi Fed, trimestrali Big Tech e semiconduttori...",
+        "strategy": "Strategia complessiva per il mercato americano...",
+        "stocks_analysis": [
+            {{
+                "ticker": "AAPL",
+                "name": "Apple Inc.",
+                "action": "BUY" | "HOLD" | "SELL",
+                "target_price": 245.00,
+                "note": "Spiegazione sintetica basata su trend e notizie recenti"
+            }}
+        ],
+        "risks": "Fattori di rischio specifici per gli USA...",
+        "confidence": "HIGH" | "MEDIUM" | "LOW",
+        "timeframe": "Breve Termine" | "Medio Termine" | "Lungo Termine"
+    }}
 }}
 """
 
@@ -178,7 +243,7 @@ Rispondi ESCLUSIVAMENTE in JSON valido con questa struttura:
             return {}
         try:
             model_name = settings.GEMINI_MODEL or 'gemini-3.7-flash'
-            logger.info(f"Chiamata a Google Gemini con modello: {model_name}")
+            logger.info(f"Chiamata a Google Gemini con modello: {model_name} (Macro Blocchi Borsa)")
             response = self.client.models.generate_content(
                 model=model_name,
                 contents=prompt,

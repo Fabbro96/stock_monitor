@@ -72,19 +72,28 @@
                 <!-- Filters -->
                 <div class="card mb-4 flex gap-4 items-end flex-wrap">
                     <div class="form-group mb-0">
-                        <label>Azione</label>
-                        <select id="filterAction" style="width: 150px;">
-                            <option value="">Tutti</option>
-                            <option value="BUY">Comprare (BUY)</option>
-                            <option value="SELL">Vendere (SELL)</option>
-                            <option value="HOLD">Mantenere (HOLD)</option>
+                        <label>Mercato</label>
+                        <select id="filterMarket" style="width: 180px;">
+                            <option value="">Tutti i Mercati</option>
+                            <option value="IT">🇮🇹 Borsa Italiana</option>
+                            <option value="US">🇺🇸 Borsa Americana</option>
+                        </select>
+                    </div>
+                    <div class="form-group mb-0">
+                        <label>Azione Generale</label>
+                        <select id="filterAction" style="width: 180px;">
+                            <option value="">Tutte le Azioni</option>
+                            <option value="ACCUMULO">Accumulo / Buy</option>
+                            <option value="MANTENIMENTO">Mantenimento / Hold</option>
+                            <option value="PRESA_PROFITTO">Presa Profitto / Sell</option>
                         </select>
                     </div>
                     <div class="form-group mb-0 flex-1">
-                        <label>Cerca Ticker</label>
-                        <input type="text" id="filterSearch" placeholder="Es. AAPL...">
+                        <label>Cerca Ticker nei Blocchi</label>
+                        <input type="text" id="filterSearch" placeholder="Es. ENEL, AAPL, NVDA...">
                     </div>
                 </div>
+
 
                 <!-- Advice List -->
                 <div id="adviceList" class="flex flex-col gap-4">

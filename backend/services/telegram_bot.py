@@ -31,26 +31,40 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Errore invio messaggio Telegram: {e}")
 
-    async def send_advice_report(self, advices: list, market_summary: str):
-        text = f"📊 <b>Report Giornaliero Stock Monitor</b>\n\n"
+    async def send_advice_report(self, advices: list, market_summary: str = ""):
+        text = f"📊 <b>Stock Monitor - Report Strategico Borse</b>\n\n"
         if market_summary:
             text += f"<i>{html.escape(market_summary)}</i>\n\n"
-        text += "<b>Consigli IA (Gemini 3.7 Flash):</b>\n\n"
         
         for adv in advices:
-            action = adv.get('action', 'HOLD').upper()
-            emoji = "🟢" if action == "BUY" else "🔴" if action == "SELL" else "⚪"
-            ticker = html.escape(adv.get('ticker', ''))
-            reasoning = html.escape(adv.get('reasoning', ''))
-            timeframe = html.escape(adv.get('timeframe', ''))
-            target_price = adv.get('target_price')
+            is_it = adv.get('market') == 'IT'
+            flag = "🇮🇹" if is_it else "🇺🇸"
+            title = adv.get('title') or ("Borsa Italiana" if is_it else "Borsa Americana")
+            action = adv.get('action', 'MANTENIMENTO').upper()
             
-            text += f"{emoji} <b>{ticker}</b> ➔ <code>{action}</code>\n"
-            if target_price:
-                text += f"🎯 Target: <b>{target_price:.2f} €</b> | Timeframe: <i>{timeframe}</i>\n"
-            text += f"💡 <i>{reasoning}</i>\n\n"
+            action_emoji = "🟢" if "BUY" in action or "ACCUMULO" in action else ("🔴" if "SELL" in action or "PROFITTO" in action else "🟡")
+            
+            text += f"{flag} <b>{html.escape(title)}</b>\n"
+            text += f"Azione di Fondo: {action_emoji} <code>{html.escape(action)}</code>\n"
+            
+            if adv.get('overview'):
+                text += f"🌐 <i>{html.escape(adv['overview'][:200])}...</i>\n"
+            if adv.get('strategy'):
+                text += f"🎯 <b>Strategia:</b> {html.escape(adv['strategy'][:250])}\n"
+            
+            stocks = adv.get('stocks_analysis', [])
+            if stocks:
+                text += "📈 <b>Focus Titoli:</b>\n"
+                for s in stocks[:4]:
+                    s_act = s.get('action', 'HOLD')
+                    s_emoji = "🟢" if s_act == "BUY" else ("🔴" if s_act == "SELL" else "⚪")
+                    tp = f" | Target: <b>{s['target_price']}</b>" if s.get('target_price') else ""
+                    text += f"  • {s_emoji} <b>{html.escape(s.get('ticker',''))}</b> (<code>{s_act}</code>{tp})\n"
+            
+            text += "\n"
             
         await self.send_message(text)
+
 
     async def send_alert(self, stock_name: str, ticker: str, change_percent: float, current_price: float):
         emoji = "🚀" if change_percent > 0 else "📉"

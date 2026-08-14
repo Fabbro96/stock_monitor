@@ -39,6 +39,20 @@ async def init_db() -> None:
         except Exception:
             pass # Colonna già presente
 
+        # Migrazioni sicure per colonne advices suddivise per mercato
+        for col_sql in [
+            "ALTER TABLE advices ADD COLUMN market VARCHAR DEFAULT 'ALL'",
+            "ALTER TABLE advices ADD COLUMN title VARCHAR",
+            "ALTER TABLE advices ADD COLUMN overview TEXT",
+            "ALTER TABLE advices ADD COLUMN stocks_json TEXT",
+            "ALTER TABLE advices ADD COLUMN risks TEXT"
+        ]:
+            try:
+                await conn.execute(text(col_sql))
+            except Exception:
+                pass
+
+
 async def get_db():
     """
     Dependency FastAPI per sessione DB asincrona sicura

@@ -155,25 +155,34 @@ const loadDashboardData = async (isSilentRefresh = false) => {
     const adviceList = document.getElementById('recentAdviceList');
     if (adviceList) {
       if (advice.length === 0) {
-        adviceList.innerHTML = '<div class="text-center text-muted py-4 text-sm">Nessun consiglio recente. Generane uno nella sezione Consigli.</div>';
+        adviceList.innerHTML = '<div class="text-center text-muted py-4 text-sm">Nessuna analisi recente. Generane una nella sezione Consigli.</div>';
       } else {
-        adviceList.innerHTML = advice.slice(0, 3).map(adv => {
+        adviceList.innerHTML = advice.slice(0, 2).map(adv => {
+          const isIT = adv.market === 'IT';
+          const flag = isIT ? '🇮🇹' : '🇺🇸';
           const action = (adv.action || 'HOLD').toUpperCase();
-          const badgeClass = action === 'BUY' ? 'badge-buy' : (action === 'SELL' ? 'badge-sell' : 'badge-hold');
+          let badgeClass = 'badge-hold';
+          if (action.includes('ACCUMULO') || action.includes('BUY')) badgeClass = 'badge-buy';
+          else if (action.includes('PROFITTO') || action.includes('SELL') || action.includes('ALLEGGERIMENTO')) badgeClass = 'badge-sell';
+
           return `
             <div class="card p-3 border border-border-color" style="background-color: rgba(0, 0, 0, 0.2);">
               <div class="flex justify-between items-center mb-1">
-                <span class="font-bold text-primary">${adv.ticker}</span>
+                <span class="font-bold text-primary flex items-center gap-1.5 text-sm">
+                  <span>${flag}</span>
+                  <span>${adv.title || (isIT ? 'Borsa Italiana' : 'Borsa Americana')}</span>
+                </span>
                 <span class="badge ${badgeClass}">${action}</span>
               </div>
               <p class="text-xs text-secondary" style="line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
-                ${adv.reasoning || 'Nessuna descrizione disponibile.'}
+                ${adv.overview || adv.strategy || adv.reasoning || 'Nessuna descrizione disponibile.'}
               </p>
             </div>
           `;
         }).join('');
       }
     }
+
 
   } catch (error) {
     if (!isSilentRefresh) {
