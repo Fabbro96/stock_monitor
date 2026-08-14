@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consigli - Stock Monitor</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="app-title">📈 Stock Monitor</div>
+            </div>
+            <nav class="nav-links">
+                <a href="/static/index.html" class="nav-link">🏠 Dashboard</a>
+                <a href="/static/portfolio.html" class="nav-link">💼 Portafoglio</a>
+                <a href="/static/advice.html" class="nav-link">🧠 Consigli</a>
+                <a href="/static/settings.html" class="nav-link">⚙️ Impostazioni</a>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <header class="topbar">
+                <div class="flex items-center gap-4">
+                    <button class="mobile-toggle">☰</button>
+                    <h1 class="page-title">Consigli dell'IA</h1>
+                </div>
+                <button class="btn btn-primary" id="btnGenerate">Genera Analisi Ora</button>
+            </header>
+
+            <div class="content-wrapper" id="adviceContent">
+                <!-- Market Summary -->
+                <div class="card mb-4 bg-gradient-to-r" style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.8), var(--surface-color));">
+                    <h3 class="card-title mb-2">Riassunto di Mercato</h3>
+                    <p id="marketSummaryText" class="text-secondary leading-relaxed">Caricamento in corso...</p>
+                </div>
+
+                <!-- Filters -->
+                <div class="card mb-4 flex gap-4 items-end flex-wrap">
+                    <div class="form-group mb-0">
+                        <label>Azione</label>
+                        <select id="filterAction" style="width: 150px;">
+                            <option value="">Tutti</option>
+                            <option value="BUY">Comprare (BUY)</option>
+                            <option value="SELL">Vendere (SELL)</option>
+                            <option value="HOLD">Mantenere (HOLD)</option>
+                        </select>
+                    </div>
+                    <div class="form-group mb-0 flex-1">
+                        <label>Cerca Ticker</label>
+                        <input type="text" id="filterSearch" placeholder="Es. AAPL...">
+                    </div>
+                </div>
+
+                <!-- Advice List -->
+                <div id="adviceList" class="flex flex-col gap-4">
+                    <!-- Cards will be rendered here -->
+                </div>
+                
+                <div class="mt-6 flex justify-center">
+                    <button class="btn btn-ghost" id="btnLoadMore" style="display:none;">Carica Altri</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script type="module" src="/static/js/app.js"></script>
+    <script type="module" src="/static/js/advice.js"></script>
+</body>
+</html>

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portafoglio - Stock Monitor</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .inline-input {
+            background-color: #0c0c14;
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            border-radius: 4px;
+            padding: 6px 8px;
+            font-size: 0.9rem;
+            width: 100%;
+            text-align: right;
+            transition: var(--transition);
+        }
+
+        .inline-input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+            background-color: #161622;
+        }
+
+        .row-modified {
+            background-color: rgba(245, 158, 11, 0.08) !important;
+            border-left: 3px solid var(--warning-color);
+        }
+
+        .save-bar {
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            background: linear-gradient(90deg, rgba(245, 158, 11, 0.15), rgba(59, 130, 246, 0.15));
+            border: 1px solid var(--warning-color);
+            border-radius: var(--radius-card);
+            padding: 12px 20px;
+            margin-bottom: 20px;
+            animation: slideDown 0.3s ease-out;
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .changes-list {
+            max-height: 240px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background-color: rgba(0, 0, 0, 0.2);
+            padding: 12px;
+            margin-bottom: 16px;
+        }
+
+        .change-item {
+            padding: 8px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.88rem;
+        }
+
+        .change-item:last-child {
+            border-bottom: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="app-title">📈 Stock Monitor</div>
+            </div>
+            <nav class="nav-links">
+                <a href="/static/index.html" class="nav-link">🏠 Dashboard</a>
+                <a href="/static/portfolio.html" class="nav-link">💼 Portafoglio</a>
+                <a href="/static/advice.html" class="nav-link">🧠 Consigli</a>
+                <a href="/static/settings.html" class="nav-link">⚙️ Impostazioni</a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <div class="flex items-center gap-4">
+                    <button class="mobile-toggle">☰</button>
+                    <h1 class="page-title">Portafoglio</h1>
+                </div>
+                <div class="flex gap-2 items-center">
+                    <button class="btn btn-ghost" id="btnExport" title="Esporta portafoglio in CSV">📥 Esporta CSV</button>
+                    <button class="btn btn-ghost" id="btnImport" title="Importa file CSV">📤 Importa CSV</button>
+                    <button class="btn btn-primary" id="btnAddHolding">➕ Aggiungi Holding</button>
+                </div>
+            </header>
+
+            <div class="content-wrapper" id="portfolioContent">
+                <!-- Banner Modifiche in sospeso -->
+                <div class="save-bar" id="saveBar">
+                    <div class="flex items-center gap-3">
+                        <span style="font-size: 1.3rem;">⚠️</span>
+                        <div>
+                            <div style="font-weight: 600; color: var(--text-primary);">Modifiche al volo non salvate</div>
+                            <div class="text-sm text-secondary" id="pendingChangesCount">Hai 0 posizioni modificate</div>
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button class="btn btn-ghost" id="btnCancelChanges">↩️ Annulla</button>
+                        <button class="btn btn-primary" id="btnSaveChanges" style="background-color: var(--warning-color); color: #000; font-weight: 700;">💾 Salva Modifiche</button>
+                    </div>
+                </div>
+
+                <!-- Summary Bar -->
+                <div class="card mb-4 flex justify-between items-center flex-wrap gap-4">
+                    <div>
+                        <div class="text-muted text-sm">Valore Totale</div>
+                        <div class="text-xl font-bold" id="totalValue">-- €</div>
+                    </div>
+                    <div>
+                        <div class="text-muted text-sm">Totale Investito</div>
+                        <div class="text-xl font-bold" id="totalInvested">-- €</div>
+                    </div>
+                    <div>
+                        <div class="text-muted text-sm">P&L Totale</div>
+                        <div class="text-xl font-bold" id="totalPnL">--</div>
+                    </div>
+                    <div>
+                        <div class="text-muted text-sm">Titoli Posseduti</div>
+                        <div class="text-xl font-bold" id="totalCount">--</div>
+                    </div>
+                </div>
+
+                <div class="grid gap-4" style="display: grid; grid-template-columns: 1fr 300px;">
+                    <!-- Holdings Table -->
+                    <div class="card" style="grid-column: 1;">
+                        <div class="flex justify-between items-center mb-3">
+                            <div class="text-sm text-secondary">
+                                💡 <em>Puoi modificare <strong>Quantità</strong> e <strong>Prezzo Acquisto</strong> direttamente nelle caselle qui sotto e poi cliccare "Salva".</em>
+                            </div>
+                        </div>
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Ticker</th>
+                                        <th>Nome Titolo</th>
+                                        <th class="text-right" style="width: 120px;">Quantità</th>
+                                        <th class="text-right" style="width: 150px;">Prezzo di Acquisto (€)</th>
+                                        <th class="text-right">Prezzo Attuale (€)</th>
+                                        <th class="text-right">Valore Totale (€)</th>
+                                        <th class="text-right">Profit / Loss (€)</th>
+                                        <th class="text-right">Profit / Loss (%)</th>
+                                        <th class="text-center" style="width: 80px;">Azioni</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="portfolioTableBody">
+                                    <tr><td colspan="9" class="text-center text-muted py-4">Caricamento portafoglio...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Allocation Chart -->
+                    <div class="card" style="grid-column: 2; height: fit-content;">
+                        <h3 class="card-title mb-4">Allocazione Portafoglio</h3>
+                        <div class="flex justify-center mb-4">
+                            <canvas id="allocationChart" width="200" height="200"></canvas>
+                        </div>
+                        <div id="allocationLegend" class="flex flex-col gap-2 text-sm"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal Add/Edit Single Holding -->
+    <div class="modal-overlay" id="holdingModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title" id="modalTitle">Aggiungi Titolo al Portafoglio</h2>
+                <button class="modal-close" id="closeModal">×</button>
+            </div>
+            <form id="holdingForm">
+                <input type="hidden" id="holdingId">
+                <div class="form-group relative">
+                    <label for="tickerInput">Ticker o Simbolo Azione</label>
+                    <input type="text" id="tickerInput" required placeholder="Es. G.MI, LDO.MI, ISP.MI, AAPL..." autocomplete="off">
+                    <div id="autocompleteResults" style="position:absolute;top:100%;left:0;right:0;background:var(--surface-color);border:1px solid var(--border-color);border-radius:6px;max-height:200px;overflow-y:auto;z-index:100;display:none;box-shadow:var(--shadow-md);"></div>
+                </div>
+                <div class="form-group">
+                    <label for="qtyInput">Quantità di Azioni</label>
+                    <input type="number" id="qtyInput" required step="any" min="0.0001" placeholder="Es. 100">
+                </div>
+                <div class="form-group">
+                    <label for="priceInput">Prezzo di Acquisto Unitario (€ o $)</label>
+                    <input type="number" id="priceInput" required step="any" min="0.0001" placeholder="Es. 24.50">
+                </div>
+
+                <div class="form-group">
+                    <label for="dateInput">Data di Acquisto</label>
+                    <input type="date" id="dateInput">
+                </div>
+                <div class="form-group">
+                    <label for="notesInput">Note (opzionale)</label>
+                    <input type="text" id="notesInput" placeholder="Es. Primo ingresso, dividendo reinvestito...">
+                </div>
+                <div class="flex justify-end gap-2 mt-4">
+                    <button type="button" class="btn btn-ghost" id="cancelModal">Annulla</button>
+                    <button type="submit" class="btn btn-primary">Salva nel Portafoglio</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Conferma Salvataggio Modifiche al Volo -->
+    <div class="modal-overlay" id="confirmSaveModal">
+        <div class="modal-content" style="max-width: 520px;">
+            <div class="modal-header">
+                <h2 class="modal-title">⚠️ Conferma Salvataggio Modifiche</h2>
+                <button class="modal-close" id="closeConfirmModal">×</button>
+            </div>
+            <p class="text-sm text-secondary mb-3">Stai per aggiornare le seguenti posizioni nel database. Confermi l'operazione?</p>
+            
+            <div class="changes-list" id="confirmChangesList">
+                <!-- Changes injected here -->
+            </div>
+
+            <div class="flex justify-end gap-2">
+                <button type="button" class="btn btn-ghost" id="cancelConfirmModal">Annulla</button>
+                <button type="button" class="btn btn-primary" id="btnExecuteSave" style="background-color: var(--success-color); color: #000; font-weight: 700;">✅ Sì, Conferma e Salva</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Import CSV -->
+    <div class="modal-overlay" id="importModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">📤 Importa Portafoglio da CSV</h2>
+                <button class="modal-close" id="closeImportModal">×</button>
+            </div>
+            <div class="form-group">
+                <p class="text-sm text-secondary mb-3">
+                    Carica un file CSV con le tue azioni. Le colonne riconosciute automaticamente sono:
+                    <code>ticker</code>, <code>quantity</code>, <code>avg_purchase_price</code>, <code>notes</code>.
+                </p>
+                <label for="csvFileInput">Seleziona file CSV</label>
+                <input type="file" id="csvFileInput" accept=".csv" style="padding: 8px;">
+            </div>
+            <div class="flex justify-end gap-2 mt-4">
+                <button type="button" class="btn btn-ghost" id="cancelImportModal">Annulla</button>
+                <button type="button" class="btn btn-primary" id="btnSubmitImport">Carica e Importa</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="/static/js/app.js"></script>
+    <script type="module" src="/static/js/portfolio.js"></script>
+</body>
+</html>

@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accedi - Stock Monitor</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .login-wrapper {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: radial-gradient(circle at 50% 30%, rgba(59, 130, 246, 0.08), transparent 70%), var(--bg-color);
+        }
+        
+        .login-box {
+            width: 100%;
+            max-width: 420px;
+            background-color: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 36px 32px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.6), 0 10px 10px -5px rgba(0, 0, 0, 0.4);
+            animation: fadeIn 0.4s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .login-logo {
+            font-size: 2rem;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+
+        .login-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 6px;
+            color: var(--text-primary);
+        }
+
+        .login-subtitle {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            text-align: center;
+            margin-bottom: 28px;
+        }
+
+        .alert-error {
+            background-color: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: var(--danger-color);
+            padding: 12px 14px;
+            border-radius: var(--radius-input);
+            font-size: 0.88rem;
+            margin-bottom: 20px;
+            display: none;
+            align-items: center;
+            gap: 10px;
+            animation: shake 0.3s ease-in-out;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-4px); }
+            40%, 80% { transform: translateX(4px); }
+        }
+
+        .password-container {
+            position: relative;
+        }
+
+        .password-toggle {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 1.1rem;
+            padding: 4px;
+            transition: var(--transition);
+        }
+
+        .password-toggle:hover {
+            color: var(--text-primary);
+        }
+
+        .btn-login {
+            width: 100%;
+            padding: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            margin-top: 8px;
+        }
+
+        .login-footer {
+            margin-top: 24px;
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            border-top: 1px solid var(--border-color);
+            padding-top: 16px;
+        }
+
+        .security-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-secondary);
+            font-size: 0.75rem;
+            background-color: rgba(255, 255, 255, 0.03);
+            padding: 4px 10px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            margin-top: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-wrapper">
+        <div class="login-box">
+            <div class="login-logo">📈</div>
+            <h1 class="login-title">Stock Monitor</h1>
+            <p class="login-subtitle">Accedi alla tua dashboard finanziaria</p>
+
+            <div id="loginAlert" class="alert-error">
+                <span>⚠️</span>
+                <span id="loginAlertText">Credenziali non corrette</span>
+            </div>
+
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="username">Nome Utente</label>
+                    <input 
+                        type="text" 
+                        id="username" 
+                        name="username" 
+                        required 
+                        autocomplete="username" 
+                        placeholder="Inserisci il tuo nome utente"
+                        autofocus
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <div class="password-container">
+                        <input 
+                            type="password" 
+                            id="password" 
+                            name="password" 
+                            required 
+                            autocomplete="current-password" 
+                            placeholder="••••••••"
+                        >
+                        <button type="button" class="password-toggle" id="togglePassword" aria-label="Mostra/Nascondi password">👁️</button>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-login" id="submitBtn">
+                    <span id="btnText">Accedi</span>
+                </button>
+            </form>
+
+            <div class="login-footer">
+                <div class="security-badge">
+                    🔒 Connessione protetta con crittografia bcrypt e JWT
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { api } from '/static/js/api.js';
+
+        // Check if already authenticated
+        (async () => {
+            try {
+                const me = await api.getMe();
+                if (me && me.username) {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const redirect = urlParams.get('redirect') || '/static/index.html';
+                    window.location.href = redirect;
+                }
+            } catch (e) {
+                // Not authenticated, stay on login page
+            }
+        })();
+
+        // Password visibility toggle
+        const toggleBtn = document.getElementById('togglePassword');
+        const passInput = document.getElementById('password');
+        toggleBtn.addEventListener('click', () => {
+            if (passInput.type === 'password') {
+                passInput.type = 'text';
+                toggleBtn.textContent = '🙈';
+            } else {
+                passInput.type = 'password';
+                toggleBtn.textContent = '👁️';
+            }
+        });
+
+        // Form submit
+        const form = document.getElementById('loginForm');
+        const alertBox = document.getElementById('loginAlert');
+        const alertText = document.getElementById('loginAlertText');
+        const submitBtn = document.getElementById('submitBtn');
+        const btnText = document.getElementById('btnText');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            alertBox.style.display = 'none';
+
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+
+            if (!username || !password) return;
+
+            submitBtn.disabled = true;
+            btnText.textContent = 'Verifica in corso...';
+
+            try {
+                const res = await api.login(username, password);
+                if (res && res.access_token) {
+                    localStorage.setItem('auth_token', res.access_token);
+                    localStorage.setItem('auth_username', res.username);
+                    
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const redirect = urlParams.get('redirect') || '/static/index.html';
+                    window.location.href = redirect;
+                }
+            } catch (err) {
+                alertBox.style.display = 'flex';
+                alertText.textContent = err.message || 'Errore durante il login. Riprova.';
+                passInput.value = '';
+                passInput.focus();
+            } finally {
+                submitBtn.disabled = false;
+                btnText.textContent = 'Accedi';
+            }
+        });
+    </script>
+</body>
+</html>

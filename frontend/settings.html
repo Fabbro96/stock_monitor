@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Impostazioni - Stock Monitor</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="app-title">📈 Stock Monitor</div>
+            </div>
+            <nav class="nav-links">
+                <a href="/static/index.html" class="nav-link">🏠 Dashboard</a>
+                <a href="/static/portfolio.html" class="nav-link">💼 Portafoglio</a>
+                <a href="/static/advice.html" class="nav-link">🧠 Consigli</a>
+                <a href="/static/settings.html" class="nav-link">⚙️ Impostazioni</a>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <header class="topbar">
+                <div class="flex items-center gap-4">
+                    <button class="mobile-toggle">☰</button>
+                    <h1 class="page-title">Impostazioni</h1>
+                </div>
+            </header>
+
+            <div class="content-wrapper" id="settingsContent">
+                <form id="settingsForm">
+                    <!-- Strategia -->
+                    <div class="card mb-4">
+                        <h2 class="card-title mb-4">Strategia di Investimento</h2>
+                        <div class="grid gap-4" style="grid-template-columns: 1fr 1fr;">
+                            <div class="form-group">
+                                <label>Orizzonte Temporale</label>
+                                <select id="strategyType">
+                                    <option value="long">Long Term (Cassettista)</option>
+                                    <option value="short">Short Term (Trading)</option>
+                                    <option value="mixed">Misto</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Budget Totale Obiettivo (€)</label>
+                                <input type="number" id="targetBudget" min="0" step="1000">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Mercati di Interesse</label>
+                            <div class="flex gap-4">
+                                <label class="flex items-center gap-2"><input type="checkbox" id="marketIt"> Italia (MIB)</label>
+                                <label class="flex items-center gap-2"><input type="checkbox" id="marketUs"> USA (S&P500/Nasdaq)</label>
+                                <label class="flex items-center gap-2"><input type="checkbox" id="marketEu"> Europa</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Notifiche -->
+                    <div class="card mb-4">
+                        <h2 class="card-title mb-4">Notifiche & Consigli</h2>
+                        <div class="form-group">
+                            <label>Frequenza Giornaliera Report</label>
+                            <select id="reportFreq" style="max-width: 200px;">
+                                <option value="1">1 volta al giorno</option>
+                                <option value="2">2 volte al giorno</option>
+                                <option value="3">3 volte al giorno</option>
+                                <option value="4">4 volte al giorno</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Orari (HH:MM)</label>
+                            <div id="timesContainer" class="flex gap-2 flex-wrap">
+                                <!-- Dynamic time inputs -->
+                            </div>
+                        </div>
+                        <div class="mt-4 pt-4 border-t border-border-color">
+                            <button type="button" class="btn btn-ghost" id="btnTestTelegram">Invia Messaggio Test Telegram</button>
+                        </div>
+                    </div>
+
+                    <!-- Regole Alert -->
+                    <div class="card mb-4">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="card-title">Regole Alert (Take Profit / Stop Loss)</h2>
+                        </div>
+                        
+                        <div class="flex gap-2 mb-4">
+                            <input type="text" id="alertTicker" placeholder="Ticker" style="width:100px;">
+                            <input type="number" id="alertThreshold" placeholder="Variazione %" style="width:120px;" step="0.1">
+                            <select id="alertDir" style="width:150px;">
+                                <option value="UP">Al Rialzo (UP)</option>
+                                <option value="DOWN">Al Ribasso (DOWN)</option>
+                            </select>
+                            <button type="button" class="btn btn-primary" id="btnAddAlert">Aggiungi</button>
+                        </div>
+
+                        <div class="table-container border border-border-color rounded">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Ticker</th>
+                                        <th>Direzione</th>
+                                        <th>Soglia %</th>
+                                        <th>Stato</th>
+                                        <th>Azioni</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="alertRulesBody">
+                                    <!-- Alerts injected here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Sicurezza & Password -->
+                    <div class="card mb-4">
+                        <h2 class="card-title mb-4">🔒 Sicurezza & Password</h2>
+                        <div id="passwordAlert" class="alert-error mb-4" style="display:none;"></div>
+                        <div class="grid gap-4" style="grid-template-columns: 1fr 1fr 150px; align-items: flex-end;">
+                            <div class="form-group mb-0">
+                                <label for="currentPassword">Password Attuale</label>
+                                <input type="password" id="currentPassword" placeholder="••••••••">
+                            </div>
+                            <div class="form-group mb-0">
+                                <label for="newPassword">Nuova Password (min. 8 car.)</label>
+                                <input type="password" id="newPassword" placeholder="••••••••">
+                            </div>
+                            <button type="button" class="btn btn-primary" id="btnChangePassword" style="height: 42px;">Aggiorna</button>
+                        </div>
+                    </div>
+
+                    <!-- Gestione Utenti (Visibile solo all'Admin) -->
+                    <div class="card mb-4" id="adminUsersSection" style="display: none;">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="card-title">👥 Gestione Utenti (Solo Amministratore)</h2>
+                        </div>
+                        
+                        <!-- Add User Form -->
+                        <div class="p-4 border border-border-color rounded mb-4" style="background-color: rgba(0, 0, 0, 0.2);">
+                            <div class="text-sm font-bold mb-3 text-primary">➕ Crea Nuovo Utente</div>
+                            <div class="grid gap-3" style="grid-template-columns: 1fr 1fr auto auto; align-items: flex-end;">
+                                <div class="form-group mb-0">
+                                    <label for="newUsername">Nome Utente</label>
+                                    <input type="text" id="newUsername" placeholder="Es. mario">
+                                </div>
+                                <div class="form-group mb-0">
+                                    <label for="newUserPassword">Password (min. 8 car.)</label>
+                                    <input type="password" id="newUserPassword" placeholder="••••••••">
+                                </div>
+                                <div class="form-group mb-0 flex items-center gap-2" style="height: 42px;">
+                                    <label class="flex items-center gap-2 cursor-pointer mb-0">
+                                        <input type="checkbox" id="newUserIsAdmin">
+                                        <span class="text-sm">Admin</span>
+                                    </label>
+                                </div>
+                                <button type="button" class="btn btn-primary" id="btnCreateUser" style="height: 42px;">Crea Utente</button>
+                            </div>
+                        </div>
+
+                        <!-- Users Table -->
+                        <div class="table-container border border-border-color rounded">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Nome Utente</th>
+                                        <th>Ruolo</th>
+                                        <th>Data Creazione</th>
+                                        <th>Ultimo Accesso</th>
+                                        <th class="text-center" style="width: 100px;">Azioni</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="usersTableBody">
+                                    <tr><td colspan="5" class="text-center text-muted py-3">Caricamento utenti...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- API Keys Status -->
+                    <div class="card mb-4">
+                        <h2 class="card-title mb-3">📡 Stato Integrazioni & Motore AI</h2>
+                        <div class="grid gap-4" style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
+                            <div class="p-3 border border-border-color rounded flex justify-between items-center" style="background-color: rgba(0,0,0,0.2);">
+                                <div>
+                                    <div class="font-bold">Google Gemini AI</div>
+                                    <div class="text-xs text-muted" id="modelGemini">gemini-3.7-flash</div>
+                                </div>
+                                <span class="badge" id="statusGemini">Verifica...</span>
+                            </div>
+                            <div class="p-3 border border-border-color rounded flex justify-between items-center" style="background-color: rgba(0,0,0,0.2);">
+                                <div>
+                                    <div class="font-bold">Notizie & Sentiment</div>
+                                    <div class="text-xs text-muted">Yahoo, Google News, Reddit</div>
+                                </div>
+                                <span class="badge badge-buy" id="statusNewsEngine">✅ Multi-Fonte Attivo</span>
+                            </div>
+                            <div class="p-3 border border-border-color rounded flex justify-between items-center" style="background-color: rgba(0,0,0,0.2);">
+                                <div>
+                                    <div class="font-bold">Bot Telegram</div>
+                                    <div class="text-xs text-muted">Notifiche push & alert</div>
+                                </div>
+                                <span class="badge" id="statusTelegram">Verifica...</span>
+                            </div>
+                        </div>
+                        <p class="text-xs text-muted mt-3">
+                            💡 <strong>Zero configurazioni complesse</strong>: Notizie e discussioni di mercato vengono aggregate automaticamente da più fonti senza richiedere credenziali sviluppatore Reddit.
+                        </p>
+                    </div>
+
+
+                    <div class="flex justify-end sticky bottom-4 z-10 p-4 border border-border-color rounded shadow-lg backdrop-blur" style="background-color: rgba(17, 18, 29, 0.9);">
+                        <button type="submit" class="btn btn-primary px-8 py-2 text-lg">Salva Impostazioni</button>
+                    </div>
+                </form>
+            </div>
+        </main>
+    </div>
+
+    <script type="module" src="/static/js/app.js"></script>
+    <script type="module" src="/static/js/settings.js"></script>
+</body>
+</html>

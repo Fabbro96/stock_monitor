@@ -1,0 +1,71 @@
+# ==============================================================================
+# Stock Monitor - File Unico Docker Compose con AUTO-UPDATE (NAS Self-Hosted)
+# ==============================================================================
+# Inserisci SOLO questo file sul tuo NAS.
+#
+# Include:
+# 1. 'stock-monitor': l'applicazione web completa
+# 2. 'watchtower': il servizio di AUTO-UPDATE che rileva automaticamente i nuovi
+#    push su GitHub, scarica l'ultima immagine e riavvia il container senza
+#    alcun intervento manuale o comando SSH!
+# ==============================================================================
+
+services:
+  stock-monitor:
+    image: ghcr.io/fabbro96/stock_monitor:latest
+    container_name: stock-monitor
+    restart: unless-stopped
+
+    ports:
+      - "8000:8000"
+    volumes:
+      # Cartella locale persistente per il database SQLite (utenti, portafoglio, storico)
+      - ./data:/app/data
+    environment:
+      # --- Google Gemini 3.7 Flash ---
+      - GEMINI_API_KEY=your_gemini_api_key_here
+      - GEMINI_MODEL=gemini-3.7-flash
+
+
+      # --- Autenticazione & Sicurezza ---
+      - SECRET_KEY=stock-monitor-super-secret-key-2026-nas
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=admin123
+      - ACCESS_TOKEN_EXPIRE_DAYS=7
+
+      # --- Notifiche Telegram (Opzionale) ---
+      - TELEGRAM_BOT_TOKEN=
+      - TELEGRAM_CHAT_ID=
+
+      # --- Configurazione Generale ---
+      - DB_PATH=data/stock_monitor.db
+      - ALERT_CHECK_INTERVAL_MINUTES=15
+      - LOG_LEVEL=INFO
+
+    labels:
+      - "com.centurylinklabs.watchtower.scope=stock-monitor-scope"
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================================================
+  # 🔄 AUTO-UPDATE: Watchtower
+  # Controlla automaticamente GitHub Container Registry ogni 5 minuti (300 sec).
+  # Appena fai 'git push' su GitHub, Watchtower scarica la nuova versione,
+  # riavvia il container ed elimina la vecchia immagine. Zero comandi manuali!
+  # ============================================================================
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: stock-monitor-autoupdate
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_POLL_INTERVAL=300
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_SCOPE=stock-monitor-scope
+    labels:
+      - "com.centurylinklabs.watchtower.scope=stock-monitor-scope"
