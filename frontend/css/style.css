@@ -248,24 +248,25 @@ body, html {
 }
 
 .info-badge {
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   color: var(--text-muted);
-  background-color: rgba(255, 255, 255, 0.06);
+  background-color: rgba(255, 255, 255, 0.08);
   border-radius: 50%;
-  width: 16px;
-  height: 16px;
+  width: 17px;
+  height: 17px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--border-color);
   font-weight: 700;
   font-style: normal;
+  transition: var(--transition);
 }
 
 .has-tooltip:hover .info-badge {
-  color: var(--primary-color);
+  color: #fff;
   border-color: var(--primary-color);
-  background-color: var(--primary-glow);
+  background-color: var(--primary-color);
 }
 
 .tooltip-box {
@@ -275,8 +276,8 @@ body, html {
   bottom: 125%;
   left: 50%;
   transform: translateX(-50%) translateY(4px);
-  background-color: #171929;
-  color: var(--text-primary);
+  background-color: #1a1d30;
+  color: #f1f5f9;
   text-align: left;
   padding: 8px 12px;
   border-radius: 6px;
@@ -284,13 +285,13 @@ body, html {
   font-weight: 400;
   text-transform: none;
   letter-spacing: normal;
-  width: 220px;
-  box-shadow: var(--shadow-lg);
-  border: 1px solid var(--border-color);
-  z-index: 1000;
+  width: 230px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--border-color);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  z-index: 99999;
   transition: opacity 0.2s, transform 0.2s, visibility 0.2s;
   pointer-events: none;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 .tooltip-box::after {
@@ -298,10 +299,10 @@ body, html {
   position: absolute;
   top: 100%;
   left: 50%;
-  margin-left: -5px;
-  border-width: 5px;
+  margin-left: -6px;
+  border-width: 6px;
   border-style: solid;
-  border-color: #171929 transparent transparent transparent;
+  border-color: #1a1d30 transparent transparent transparent;
 }
 
 .has-tooltip:hover .tooltip-box {
@@ -309,6 +310,48 @@ body, html {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+
+/* Tooltip per intestazioni di tabella (apre verso il basso per non essere tagliato da overflow) */
+th .tooltip-box,
+.has-tooltip.tooltip-bottom .tooltip-box {
+  bottom: auto;
+  top: 130%;
+  transform: translateX(-50%) translateY(-4px);
+}
+
+th .has-tooltip:hover .tooltip-box,
+.has-tooltip.tooltip-bottom:hover .tooltip-box {
+  transform: translateX(-50%) translateY(0);
+}
+
+th .tooltip-box::after,
+.has-tooltip.tooltip-bottom .tooltip-box::after {
+  top: auto;
+  bottom: 100%;
+  border-color: transparent transparent #1a1d30 transparent;
+}
+
+/* Allineamento a destra per colonne allineate a destra */
+th.text-right .tooltip-box,
+.justify-end .tooltip-box {
+  left: auto;
+  right: -5px;
+  transform: translateY(-4px);
+}
+
+th.text-right .has-tooltip:hover .tooltip-box,
+.justify-end.has-tooltip:hover .tooltip-box,
+.justify-end .has-tooltip:hover .tooltip-box {
+  transform: translateY(0);
+}
+
+th.text-right .tooltip-box::after,
+.justify-end .tooltip-box::after {
+  left: auto;
+  right: 12px;
+  margin-left: 0;
+}
+
 
 
 /* Market Status Pulse */
