@@ -54,9 +54,20 @@ async def generate_advice_job():
 
 
 async def cleanup_old_data_job():
-    logger.info("Avvio job pulizia dati storici obsoleti")
-    # Pulizia log / storici più vecchi di 365 giorni se necessario
-    pass
+    logger.info("Avvio job pulizia: eliminazione analisi più vecchie di 7 giorni")
+    try:
+        async with async_session_maker() as session:
+            from backend.models.advice import Advice
+            from sqlalchemy import delete
+            from datetime import datetime, timezone, timedelta
+            
+            cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+            await session.execute(delete(Advice).where(Advice.timestamp < cutoff))
+            await session.commit()
+            logger.info("Pulizia analisi storiche (più vecchie di 7 giorni) completata.")
+    except Exception as e:
+        logger.error(f"Errore durante cleanup_old_data_job: {e}")
+
 
 def init_scheduler(app):
     # Esegui ogni ora durante l'orario di borsa
@@ -102,9 +113,22 @@ def init_scheduler(app):
         max_instances=1,
         coalesce=True
     )
+    # Pulizia automatica analisi vecchie (> 7 giorni) ogni notte alle 03:00
+    scheduler.add_job(
+        cleanup_old_data_job,
+        'cron',
+        hour=3,
+        minute=0,
+        id='cleanup_old_data_job',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True
+    )
     
     scheduler.start()
+
     logger.info("Scheduler APScheduler avviato con successo.")
+
 
 def shutdown_scheduler():
     if scheduler.running:

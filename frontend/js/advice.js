@@ -2,10 +2,10 @@ import { api } from './api.js';
 import { formatCurrency, formatDateTime, showLoading, hideLoading, showToast } from './app.js';
 
 let currentPage = 1;
-let currentFilters = { market: '', action: '', q: '' };
+let currentFilters = { market: '', action: '', date: '', q: '' };
 
 const renderAdviceCard = (advice) => {
-  const isFollowed = advice.followed ? 'checked' : '';
+  const isFollowed = Boolean(advice.followed);
   const isIT = advice.market === 'IT';
   const flag = isIT ? '🇮🇹' : '🇺🇸';
   const marketBadgeColor = isIT ? 'rgba(16, 185, 129, 0.10)' : 'rgba(59, 130, 246, 0.10)';
@@ -74,21 +74,30 @@ const renderAdviceCard = (advice) => {
     `;
   }
 
+  // Bottone interattivo Letto / Non Letto
+  const followBtnHtml = isFollowed
+    ? `<button class="btn btn-sm btn-success flex items-center gap-1 text-xs py-1.5 px-3" onclick="window.toggleFollow(${advice.id})">
+         <span>✅ Letto</span>
+         <span class="text-[10px] opacity-80">(Segna come Non Letto)</span>
+       </button>`
+    : `<button class="btn btn-sm btn-ghost flex items-center gap-1 text-xs py-1.5 px-3 border border-border-color hover:bg-[rgba(255,255,255,0.08)]" onclick="window.toggleFollow(${advice.id})">
+         <span>👁️ Segna come Letto</span>
+       </button>`;
+
   return `
     <div class="card mb-4" id="advice-${advice.id}" style="border-top: 3px solid ${marketBorderColor}; background: linear-gradient(180deg, ${marketBadgeColor} 0%, var(--surface-color) 45px);">
       <!-- Top header -->
       <div class="flex justify-between items-start mb-4 flex-wrap gap-2">
         <div>
-          <div class="flex items-center gap-3 mb-1">
+          <div class="flex items-center gap-3 mb-1 flex-wrap">
             <span style="font-size: 1.6rem;">${flag}</span>
             <h3 class="text-xl font-bold">${advice.title || (isIT ? 'Borsa Italiana (Piazza Affari)' : 'Borsa Americana (Wall Street)')}</h3>
             <span class="badge ${actionBadge}">${actionText}</span>
           </div>
-          <div class="text-xs text-muted">Analisi strategica: ${formatDateTime(advice.timestamp)}</div>
+          <div class="text-xs text-muted">Analisi elaborata: <strong>${formatDateTime(advice.timestamp)}</strong></div>
         </div>
-        <div class="flex items-center gap-2 text-sm bg-[rgba(255,255,255,0.03)] px-3 py-1.5 rounded border border-border-color">
-          <input type="checkbox" id="cb-${advice.id}" ${isFollowed} onchange="window.toggleFollow(${advice.id})">
-          <label for="cb-${advice.id}" class="mb-0 cursor-pointer text-xs font-semibold">Segnato come Letto</label>
+        <div id="follow-container-${advice.id}">
+          ${followBtnHtml}
         </div>
       </div>
 
@@ -124,7 +133,7 @@ const renderAdviceCard = (advice) => {
           ${advice.confidence ? `<div>Confidenza IA: <strong class="text-primary">${advice.confidence}</strong></div>` : ''}
           ${advice.timeframe ? `<div>Orizzonte: <strong class="text-primary">${advice.timeframe}</strong></div>` : ''}
         </div>
-        <div class="text-xs text-muted">Gemini 3.7 Flash</div>
+        <div class="text-xs text-muted">Archivio Ultimi 7 Giorni • Gemini 3.7 Flash</div>
       </div>
     </div>
   `;
@@ -134,37 +143,39 @@ const loadAdvice = async (page = 1, append = false) => {
   try {
     if (!append) showLoading('adviceContent');
     
-    const params = { page, limit: 10, ...currentFilters };
+    const params = { page, limit: 10, days: 7, ...currentFilters };
     const response = await api.getAdvice(params).catch(() => []);
     
     const adviceList = Array.isArray(response) ? response : (response.data || []);
-    const summary = response.summary || '';
 
-    if (page === 1 && summary) {
-      document.getElementById('marketSummaryText').textContent = summary;
-    } else if (page === 1) {
-      document.getElementById('marketSummaryText').textContent = "Scenario suddiviso per Borsa Italiana (Piazza Affari) e Borsa Americana (Wall Street).";
+    if (page === 1) {
+      if (currentFilters.date) {
+        document.getElementById('marketSummaryText').textContent = `Analisi storiche registrate per la giornata del ${currentFilters.date}.`;
+      } else {
+        document.getElementById('marketSummaryText').textContent = "Visualizzazione dei report strategici generati nell'ultima settimana, suddivisi per Borsa Italiana (Piazza Affari) e Borsa Americana (Wall Street).";
+      }
     }
 
     const listEl = document.getElementById('adviceList');
     if (!append) listEl.innerHTML = '';
 
-    // Filter locally if search query is entered
+    // Filtro locale aggiuntivo se è presente una stringa di ricerca
     let filtered = adviceList;
     if (currentFilters.q) {
       const query = currentFilters.q.toUpperCase();
       filtered = filtered.filter(adv => {
         const titleMatch = (adv.title || '').toUpperCase().includes(query);
         const overviewMatch = (adv.overview || '').toUpperCase().includes(query);
+        const strategyMatch = (adv.strategy || '').toUpperCase().includes(query);
         const stocksMatch = (adv.stocks_analysis || []).some(s => 
           (s.ticker || '').toUpperCase().includes(query) || (s.name || '').toUpperCase().includes(query)
         );
-        return titleMatch || overviewMatch || stocksMatch;
+        return titleMatch || overviewMatch || strategyMatch || stocksMatch;
       });
     }
 
     if (filtered.length === 0 && !append) {
-      listEl.innerHTML = '<div class="text-center text-muted py-8">Nessuna analisi di mercato trovata per i filtri selezionati. Clicca "Genera Analisi Ora" per elaborare i nuovi blocchi di borsa.</div>';
+      listEl.innerHTML = '<div class="card text-center text-muted py-8">Nessuna analisi strategica trovata per i criteri selezionati. Usa il pulsante "Genera Analisi Ora" o seleziona un\'altra data.</div>';
       document.getElementById('btnLoadMore').style.display = 'none';
       return;
     }
@@ -182,12 +193,24 @@ const loadAdvice = async (page = 1, append = false) => {
 
 window.toggleFollow = async (id) => {
   try {
-    await api.followAdvice(id);
-    showToast('Stato aggiornato', 'success');
+    const res = await api.followAdvice(id);
+    showToast(res.followed ? 'Segnato come letto' : 'Segnato come non letto', 'success');
+    
+    // Aggiorna solo il pulsante corrispondente
+    const container = document.getElementById(`follow-container-${id}`);
+    if (container) {
+      const isFollowed = Boolean(res.followed);
+      container.innerHTML = isFollowed
+        ? `<button class="btn btn-sm btn-success flex items-center gap-1 text-xs py-1.5 px-3" onclick="window.toggleFollow(${id})">
+             <span>✅ Letto</span>
+             <span class="text-[10px] opacity-80">(Segna come Non Letto)</span>
+           </button>`
+        : `<button class="btn btn-sm btn-ghost flex items-center gap-1 text-xs py-1.5 px-3 border border-border-color hover:bg-[rgba(255,255,255,0.08)]" onclick="window.toggleFollow(${id})">
+             <span>👁️ Segna come Letto</span>
+           </button>`;
+    }
   } catch(e) {
-    showToast('Errore aggiornamento', 'error');
-    const cb = document.getElementById(`cb-${id}`);
-    if(cb) cb.checked = !cb.checked;
+    showToast('Errore durante l\'aggiornamento dello stato', 'error');
   }
 };
 
@@ -195,24 +218,39 @@ const checkMarketStatus = async () => {
   try {
     const data = await api.getDashboard();
     const marketStatus = data.market_status || {};
-    const anyOpen = marketStatus.ANY_OPEN === 'OPEN';
-    const dot = document.getElementById('marketDot');
-    const text = document.getElementById('marketStatusText');
+    const itStatus = marketStatus.IT === 'OPEN';
+    const usStatus = marketStatus.US === 'OPEN';
+    const anyOpen = Boolean(marketStatus.ANY_OPEN === 'OPEN');
+
+    const badgeIT = document.getElementById('marketStatusIT');
+    const badgeUS = document.getElementById('marketStatusUS');
     const btn = document.getElementById('btnGenerate');
 
-    if (dot && text) {
-      if (anyOpen) {
-        dot.className = 'status-dot open';
-        text.textContent = '🟢 Borse Aperte';
-        if (btn) {
-          btn.title = 'Genera nuova analisi macro per Borsa Italiana e Americana';
-        }
+    if (badgeIT) {
+      if (itStatus) {
+        badgeIT.className = 'badge badge-buy text-[10px]';
+        badgeIT.textContent = '🟢 Aperta (09:00-17:30)';
       } else {
-        dot.className = 'status-dot closed';
-        text.textContent = '🔴 Borse Chiuse';
-        if (btn) {
-          btn.title = 'I mercati sono chiusi. L\'IA genera consigli solo a borse aperte.';
-        }
+        badgeIT.className = 'badge badge-sell text-[10px]';
+        badgeIT.textContent = '🔴 Chiusa (09:00-17:30)';
+      }
+    }
+
+    if (badgeUS) {
+      if (usStatus) {
+        badgeUS.className = 'badge badge-buy text-[10px]';
+        badgeUS.textContent = '🟢 Aperta (15:30-22:00)';
+      } else {
+        badgeUS.className = 'badge badge-sell text-[10px]';
+        badgeUS.textContent = '🔴 Chiusa (15:30-22:00)';
+      }
+    }
+
+    if (btn) {
+      if (anyOpen) {
+        btn.title = 'Genera nuova analisi macro per i mercati aperti';
+      } else {
+        btn.title = 'Tutti i mercati sono chiusi. Milano chiude alle 17:30, Wall Street alle 22:00.';
       }
     }
   } catch(e) {
@@ -232,17 +270,29 @@ document.addEventListener('DOMContentLoaded', () => {
   let debounceTimer;
   const applyFilters = () => {
     currentPage = 1;
+    currentFilters.date = document.getElementById('filterDate').value;
     currentFilters.market = document.getElementById('filterMarket').value;
     currentFilters.action = document.getElementById('filterAction').value;
     currentFilters.q = document.getElementById('filterSearch').value;
     loadAdvice(1);
   };
 
+  document.getElementById('filterDate').addEventListener('change', applyFilters);
   document.getElementById('filterMarket').addEventListener('change', applyFilters);
   document.getElementById('filterAction').addEventListener('change', applyFilters);
   document.getElementById('filterSearch').addEventListener('input', () => {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(applyFilters, 500);
+  });
+
+  document.getElementById('btnResetFilters').addEventListener('click', () => {
+    document.getElementById('filterDate').value = '';
+    document.getElementById('filterMarket').value = '';
+    document.getElementById('filterAction').value = '';
+    document.getElementById('filterSearch').value = '';
+    currentFilters = { market: '', action: '', date: '', q: '' };
+    currentPage = 1;
+    loadAdvice(1);
   });
 
   document.getElementById('btnGenerate').addEventListener('click', async () => {

@@ -24,76 +24,92 @@
             <header class="topbar">
                 <div class="flex items-center gap-4">
                     <button class="mobile-toggle">☰</button>
-                    <h1 class="page-title">Consigli dell'IA</h1>
+                    <h1 class="page-title">Consigli Strategici dell'IA</h1>
                 </div>
-                <div class="flex items-center gap-3">
-                    <div id="marketStatusBadge" class="status-indicator text-xs font-semibold px-3 py-1 rounded bg-[rgba(255,255,255,0.04)] border border-border-color">
-                        <span class="status-dot closed" id="marketDot"></span>
-                        <span id="marketStatusText">Borse: Controllo...</span>
+                <div class="flex items-center gap-3 flex-wrap">
+                    <!-- Specific Market Badges -->
+                    <div class="flex items-center gap-2 text-xs font-semibold">
+                        <div class="px-2.5 py-1 rounded bg-[rgba(255,255,255,0.04)] border border-border-color flex items-center gap-1.5" title="Borsa Italiana: Lun-Ven 09:00 - 17:30">
+                            <span>🇮🇹 Milano:</span>
+                            <span id="marketStatusIT" class="badge badge-hold text-[10px]">Controllo...</span>
+                        </div>
+                        <div class="px-2.5 py-1 rounded bg-[rgba(255,255,255,0.04)] border border-border-color flex items-center gap-1.5" title="Wall Street: Lun-Ven 15:30 - 22:00 (Ora Italiana)">
+                            <span>🇺🇸 Wall St:</span>
+                            <span id="marketStatusUS" class="badge badge-hold text-[10px]">Controllo...</span>
+                        </div>
                     </div>
                     <button class="btn btn-primary" id="btnGenerate">Genera Analisi Ora</button>
                 </div>
             </header>
-
 
             <div class="content-wrapper" id="adviceContent">
                 <!-- Market Summary -->
                 <div class="card mb-4 bg-gradient-to-r" style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.8), var(--surface-color));">
                     <div class="flex justify-between items-center mb-2">
                         <h3 class="card-title">🌐 Riassunto Globale del Mercato</h3>
-                        <span class="text-xs text-muted">Aggiornato da Gemini 3.7 Flash</span>
+                        <span class="text-xs text-muted">Ultimi 7 Giorni • Gemini 3.7 Flash</span>
                     </div>
-                    <p id="marketSummaryText" class="text-secondary leading-relaxed">Caricamento in corso...</p>
+                    <p id="marketSummaryText" class="text-secondary leading-relaxed mb-0">Caricamento in corso...</p>
                 </div>
 
                 <!-- Legenda Termini Finanziari -->
                 <div class="card mb-4" style="background: rgba(18, 20, 32, 0.7); border-left: 3px solid var(--primary-color);">
                     <div class="flex items-center gap-2 mb-2">
                         <span style="font-size: 1.1rem;">💡</span>
-                        <h4 class="font-bold text-sm" style="margin: 0; color: var(--text-primary);">Come interpretare i segnali dell'IA</h4>
+                        <h4 class="font-bold text-sm" style="margin: 0; color: var(--text-primary);">Come interpretare le analisi macro</h4>
                     </div>
                     <div class="grid gap-3 text-xs text-secondary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
                         <div>
                             <strong class="text-primary block mb-1">🎯 Target Price</strong>
-                            Prezzo obiettivo stimato dall'IA verso cui il titolo potrebbe dirigersi nel periodo indicato.
+                            Prezzo obiettivo stimato per il titolo in base all'analisi fondamentale e tecnica recente.
                         </div>
                         <div>
                             <strong class="text-primary block mb-1">🛡️ Livello di Confidenza</strong>
-                            Grado di affidabilità (Bassa / Media / Alta) calcolato incrociando notizie e indicatori tecnici.
+                            Grado di affidabilità del segnale (Bassa / Media / Alta) calcolato dall'IA.
                         </div>
                         <div>
                             <strong class="text-primary block mb-1">⏳ Timeframe (Orizzonte)</strong>
-                            Durata attesa dell'operazione: <em>Breve Termine</em> (giorni/settimane) o <em>Lungo Termine</em> (mesi/anni).
+                            Orizzonte temporale della strategia: <em>Breve Termine</em> (giorni) o <em>Medio/Lungo Termine</em> (settimane/mesi).
                         </div>
                     </div>
                 </div>
 
-
                 <!-- Filters -->
-                <div class="card mb-4 flex gap-4 items-end flex-wrap">
-                    <div class="form-group mb-0">
-                        <label>Mercato</label>
-                        <select id="filterMarket" style="width: 180px;">
-                            <option value="">Tutti i Mercati</option>
-                            <option value="IT">🇮🇹 Borsa Italiana</option>
-                            <option value="US">🇺🇸 Borsa Americana</option>
-                        </select>
+                <div class="card mb-4">
+                    <div class="flex justify-between items-center mb-3">
+                        <h4 class="text-sm font-bold text-primary flex items-center gap-1.5">
+                            <span>🔍 Filtra Analisi di Mercato</span>
+                        </h4>
+                        <button class="btn btn-ghost btn-sm text-xs py-1" id="btnResetFilters">↺ Mostra Tutta la Settimana</button>
                     </div>
-                    <div class="form-group mb-0">
-                        <label>Azione Generale</label>
-                        <select id="filterAction" style="width: 180px;">
-                            <option value="">Tutte le Azioni</option>
-                            <option value="ACCUMULO">Accumulo / Buy</option>
-                            <option value="MANTENIMENTO">Mantenimento / Hold</option>
-                            <option value="PRESA_PROFITTO">Presa Profitto / Sell</option>
-                        </select>
-                    </div>
-                    <div class="form-group mb-0 flex-1">
-                        <label>Cerca Ticker nei Blocchi</label>
-                        <input type="text" id="filterSearch" placeholder="Es. ENEL, AAPL, NVDA...">
+                    <div class="flex gap-4 items-end flex-wrap">
+                        <div class="form-group mb-0">
+                            <label>📅 Filtra per Giorno</label>
+                            <input type="date" id="filterDate" style="width: 170px;">
+                        </div>
+                        <div class="form-group mb-0">
+                            <label>🏛️ Mercato</label>
+                            <select id="filterMarket" style="width: 170px;">
+                                <option value="">Tutti i Mercati</option>
+                                <option value="IT">🇮🇹 Borsa Italiana</option>
+                                <option value="US">🇺🇸 Borsa Americana</option>
+                            </select>
+                        </div>
+                        <div class="form-group mb-0">
+                            <label>🎯 Azione Generale</label>
+                            <select id="filterAction" style="width: 170px;">
+                                <option value="">Tutte le Azioni</option>
+                                <option value="ACCUMULO">Accumulo / Buy</option>
+                                <option value="MANTENIMENTO">Mantenimento / Hold</option>
+                                <option value="PRESA_PROFITTO">Presa Profitto / Sell</option>
+                            </select>
+                        </div>
+                        <div class="form-group mb-0 flex-1 min-w-[200px]">
+                            <label>🔎 Cerca Ticker nei Blocchi</label>
+                            <input type="text" id="filterSearch" placeholder="Es. ENEL, AAPL, NVDA, LDO...">
+                        </div>
                     </div>
                 </div>
-
 
                 <!-- Advice List -->
                 <div id="adviceList" class="flex flex-col gap-4">

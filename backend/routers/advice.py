@@ -17,7 +17,8 @@ router = APIRouter(prefix="/api/advice", tags=["advice"])
 async def list_advices(
     market: Optional[str] = None,
     action: Optional[str] = None,
-    days: int = Query(30),
+    date: Optional[str] = None, # Formato YYYY-MM-DD per filtrare per singolo giorno
+    days: int = Query(7),       # Default: ultima settimana
     skip: int = 0,
     limit: int = 20,
     db: AsyncSession = Depends(get_db)
@@ -29,8 +30,19 @@ async def list_advices(
     if action:
         query = query.where(Advice.action.ilike(f"%{action}%"))
         
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    query = query.where(Advice.timestamp >= cutoff)
+    if date:
+        try:
+            # Filtro per specifico giorno (da 00:00 a 23:59:59 UTC)
+            day_start = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            day_end = day_start + timedelta(days=1)
+            query = query.where(Advice.timestamp >= day_start).where(Advice.timestamp < day_end)
+        except ValueError:
+            pass
+    else:
+        # Finestra temporale: solo l'ultima settimana (default 7 giorni)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        query = query.where(Advice.timestamp >= cutoff)
+        
     query = query.order_by(Advice.timestamp.desc()).offset(skip).limit(limit)
     
     result = await db.execute(query)
@@ -66,7 +78,7 @@ async def list_advices(
             "suggestedQuantity": a.suggested_quantity,
             "ticker": stock_ticker,
             "name": stock_name,
-            "followed": a.followed,
+            "followed": bool(a.followed),
             "timestamp": str(a.timestamp) if a.timestamp else str(a.created_at)
         })
         
@@ -74,8 +86,14 @@ async def list_advices(
 
 @router.get("/latest")
 async def get_latest(db: AsyncSession = Depends(get_db)):
-    # Ritorna gli ultimi blocchi per Borsa Italiana e Borsa Americana
-    result = await db.execute(select(Advice).order_by(Advice.timestamp.desc()).limit(4))
+    # Ritorna gli ultimi blocchi della settimana per Borsa Italiana e Borsa Americana
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    result = await db.execute(
+        select(Advice)
+        .where(Advice.timestamp >= cutoff)
+        .order_by(Advice.timestamp.desc())
+        .limit(4)
+    )
     advices = result.scalars().all()
     
     output = []
@@ -98,18 +116,19 @@ async def get_latest(db: AsyncSession = Depends(get_db)):
             "timeframe": a.timeframe,
             "targetPrice": a.target_price,
             "suggestedQuantity": a.suggested_quantity,
-            "followed": a.followed,
+            "followed": bool(a.followed),
             "timestamp": str(a.timestamp) if a.timestamp else str(a.created_at)
         })
     return output
 
+@router.post("/{advice_id}/toggle-follow")
 @router.post("/{advice_id}/follow")
-async def follow_advice(advice_id: int, db: AsyncSession = Depends(get_db)):
+async def toggle_follow_advice(advice_id: int, db: AsyncSession = Depends(get_db)):
     advice = await db.get(Advice, advice_id)
     if not advice:
-        raise HTTPException(status_code=404, detail="Consiglio non trovato")
+        raise HTTPException(status_code=404, detail="Analisi non trovata")
         
-    advice.followed = not advice.followed
+    advice.followed = not bool(advice.followed)
     await db.commit()
     return {"status": "success", "followed": advice.followed}
 
@@ -118,7 +137,7 @@ async def generate_advice(force: bool = Query(False), db: AsyncSession = Depends
     if not force and not MarketDataService.are_any_markets_open():
         raise HTTPException(
             status_code=400,
-            detail="I mercati finanziari sono attualmente chiusi (weekend o fuori orario di negoziazione). L'IA non genera consigli a borsa chiusa."
+            detail="Tutti i mercati finanziari sono attualmente chiusi (Milano 09:00-17:30, Wall Street 15:30-22:00 ora italiana). Puoi comunque forzare la generazione manuale."
         )
     advisor = AdvisorService()
     advices = await advisor.generate_advice(db, force=force)
