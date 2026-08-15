@@ -2,10 +2,11 @@ import { api } from './api.js';
 import { formatCurrency, formatPercent, showLoading, hideLoading, showToast } from './app.js';
 
 let portfolioData = [];
-let modifiedHoldings = new Map(); // id -> { id, ticker, originalQty, newQty, originalPrice, newPrice, originalNotes, newNotes }
+let summaryData = {};
+let modifiedHoldings = new Map();
+let currentAllocView = 'stock'; // 'stock' or 'market'
 
-// Colors for pie chart
-const colors = ['#3b82f6', '#22c55e', '#ef4444', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#10b981', '#6366f1'];
+const colors = ['#3b82f6', '#10b981', '#f43f5e', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#6366f1', '#14b8a6'];
 
 const drawPieChart = (data) => {
   const canvas = document.getElementById('allocationChart');
@@ -15,7 +16,7 @@ const drawPieChart = (data) => {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   
   if (!data || data.length === 0) {
-    ctx.fillStyle = '#2a2a3e';
+    ctx.fillStyle = '#21253d';
     ctx.beginPath();
     ctx.arc(canvas.width/2, canvas.height/2, Math.min(canvas.width/2, canvas.height/2) - 10, 0, 2 * Math.PI);
     ctx.fill();
@@ -39,25 +40,42 @@ const drawPieChart = (data) => {
     startAngle += sliceAngle;
   });
 
-  // Legend
   const legend = document.getElementById('allocationLegend');
   if (legend) {
-    legend.innerHTML = data.slice(0, 6).map((item, i) => `
+    legend.innerHTML = data.slice(0, 7).map((item, i) => `
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
           <div style="width:10px;height:10px;background-color:${colors[i % colors.length]};border-radius:2px;"></div>
-          <span class="font-bold">${item.ticker}</span>
+          <span class="font-bold text-primary font-mono">${item.label}</span>
         </div>
-        <span>${formatPercent((item.value / total) * 100)}</span>
+        <span class="font-mono text-secondary">${formatPercent((item.value / total) * 100)}</span>
       </div>
     `).join('');
+  }
+};
+
+const updateAllocationChart = () => {
+  if (currentAllocView === 'market') {
+    const allocMap = summaryData.market_allocation || {};
+    const marketLabels = { 'IT': '🇮🇹 Italia', 'US': '🇺🇸 USA', 'EU': '🇪🇺 Europa' };
+    const data = Object.entries(allocMap).map(([k, v]) => ({
+      label: marketLabels[k] || k,
+      value: v
+    })).filter(d => d.value > 0);
+    drawPieChart(data);
+  } else {
+    const data = portfolioData.map(item => ({
+      label: item.ticker,
+      value: item.total_value || ((item.current_price || item.avg_purchase_price) * item.quantity)
+    }));
+    data.sort((a, b) => b.value - a.value);
+    drawPieChart(data);
   }
 };
 
 const updateSaveBar = () => {
   const saveBar = document.getElementById('saveBar');
   const countEl = document.getElementById('pendingChangesCount');
-  
   if (!saveBar) return;
   
   const count = modifiedHoldings.size;
@@ -74,7 +92,7 @@ const renderTable = () => {
   if (!tbody) return;
   
   if (portfolioData.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">Nessun titolo in portafoglio. Clicca <strong>"Aggiungi Holding"</strong> o <strong>"Importa CSV"</strong> per iniziare.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-8">Nessun titolo in portafoglio. Clicca <strong>"➕ Aggiungi Holding"</strong> o <strong>"📤 Importa CSV"</strong> per iniziare.</td></tr>';
     return;
   }
 
@@ -90,12 +108,18 @@ const renderTable = () => {
     const invested = displayQty * displayPrice;
     const pnlAbs = totalValue - invested;
     const pnlPct = invested > 0 ? (pnlAbs / invested) * 100 : 0;
+    const flag = item.market === 'IT' ? '🇮🇹' : '🇺🇸';
 
     return `
       <tr class="${isModified ? 'row-modified' : ''}" data-id="${item.id}">
         <td>
-          <span class="font-bold">${item.ticker}</span>
-          ${item.notes ? `<div class="text-xs text-muted" title="${item.notes}">📝 ${item.notes.substring(0, 15)}...</div>` : ''}
+          <div class="flex items-center gap-2">
+            <span>${flag}</span>
+            <div>
+              <a href="#" class="stock-ticker-link font-bold font-mono" data-stock="${item.ticker}">${item.ticker}</a>
+              ${item.notes ? `<div class="text-[11px] text-muted" title="${item.notes}">📝 ${item.notes.substring(0, 20)}</div>` : ''}
+            </div>
+          </div>
         </td>
         <td class="text-secondary">${item.name || item.ticker}</td>
         
@@ -123,22 +147,23 @@ const renderTable = () => {
           >
         </td>
 
-        <td class="text-right font-mono">${formatCurrency(currentPrice)}</td>
-        <td class="text-right font-mono" id="val-${item.id}">${formatCurrency(totalValue)}</td>
-        <td class="text-right font-mono ${pnlAbs >= 0 ? 'text-profit' : 'text-loss'}" id="pnlabs-${item.id}">
-          ${formatCurrency(pnlAbs)}
+        <td class="text-right font-mono font-bold">${formatCurrency(currentPrice, item.currency)}</td>
+        <td class="text-right font-mono font-bold text-primary" id="val-${item.id}">${formatCurrency(totalValue, item.currency)}</td>
+        <td class="text-right font-mono font-bold ${pnlAbs >= 0 ? 'text-profit' : 'text-loss'}" id="pnlabs-${item.id}">
+          ${formatCurrency(pnlAbs, item.currency)}
         </td>
-        <td class="text-right font-mono ${pnlPct >= 0 ? 'text-profit' : 'text-loss'}" id="pnlpct-${item.id}">
+        <td class="text-right font-mono font-bold ${pnlPct >= 0 ? 'text-profit' : 'text-loss'}" id="pnlpct-${item.id}">
           ${formatPercent(pnlPct)}
         </td>
         <td class="text-center">
-          <button class="btn btn-ghost btn-sm text-loss" title="Elimina" onclick="window.deleteHolding(${item.id})">🗑️</button>
+          <div class="flex justify-center gap-1">
+            <button class="btn btn-ghost btn-sm text-loss" title="Elimina" onclick="window.deleteHolding(${item.id})">🗑️</button>
+          </div>
         </td>
       </tr>
     `;
   }).join('');
 
-  // Attach real-time input event listeners for live recalculation
   tbody.querySelectorAll('.input-qty, .input-price').forEach(input => {
     input.addEventListener('input', handleInlineEdit);
   });
@@ -158,7 +183,6 @@ const handleInlineEdit = (e) => {
   const newQty = parseFloat(qtyInput.value) || 0;
   const newPrice = parseFloat(priceInput.value) || 0;
 
-  // Check if modified compared to original
   const isChanged = (newQty !== item.quantity) || (Math.abs(newPrice - item.avg_purchase_price) > 0.0001);
 
   if (isChanged) {
@@ -177,7 +201,6 @@ const handleInlineEdit = (e) => {
     row.classList.remove('row-modified');
   }
 
-  // Live update calculated row fields
   const currentPrice = item.current_price || newPrice;
   const totalValue = newQty * currentPrice;
   const invested = newQty * newPrice;
@@ -188,43 +211,44 @@ const handleInlineEdit = (e) => {
   const pnlAbsEl = document.getElementById(`pnlabs-${holdingId}`);
   const pnlPctEl = document.getElementById(`pnlpct-${holdingId}`);
 
-  if (valEl) valEl.textContent = formatCurrency(totalValue);
+  if (valEl) valEl.textContent = formatCurrency(totalValue, item.currency);
   if (pnlAbsEl) {
-    pnlAbsEl.textContent = formatCurrency(pnlAbs);
-    pnlAbsEl.className = `text-right font-mono ${pnlAbs >= 0 ? 'text-profit' : 'text-loss'}`;
+    pnlAbsEl.textContent = formatCurrency(pnlAbs, item.currency);
+    pnlAbsEl.className = `text-right font-mono font-bold ${pnlAbs >= 0 ? 'text-profit' : 'text-loss'}`;
   }
   if (pnlPctEl) {
     pnlPctEl.textContent = formatPercent(pnlPct);
-    pnlPctEl.className = `text-right font-mono ${pnlPct >= 0 ? 'text-profit' : 'text-loss'}`;
+    pnlPctEl.className = `text-right font-mono font-bold ${pnlPct >= 0 ? 'text-profit' : 'text-loss'}`;
   }
 
   updateSaveBar();
 };
 
-const loadPortfolio = async () => {
+export const loadPortfolio = async () => {
   try {
     showLoading('portfolioContent');
-    const summary = await api.getPortfolioSummary().catch(() => ({ total_value: 0, total_invested: 0, total_pnl: 0, total_pnl_percent: 0, holdings_count: 0 }));
+    summaryData = await api.getPortfolioSummary().catch(() => ({}));
     portfolioData = await api.getPortfolio().catch(() => []);
 
-    document.getElementById('totalValue').textContent = formatCurrency(summary.total_value);
-    document.getElementById('totalInvested').textContent = formatCurrency(summary.total_invested);
-    document.getElementById('totalCount').textContent = summary.holdings_count || portfolioData.length;
+    document.getElementById('totalValue').textContent = formatCurrency(summaryData.total_value || 0);
+    document.getElementById('totalInvested').textContent = formatCurrency(summaryData.total_invested || 0);
+    document.getElementById('totalCount').textContent = summaryData.holdings_count || portfolioData.length;
     
     const pnlEl = document.getElementById('totalPnL');
-    pnlEl.textContent = `${formatCurrency(summary.total_pnl)} (${formatPercent(summary.total_pnl_percent)})`;
-    pnlEl.className = `text-xl font-bold ${summary.total_pnl >= 0 ? 'text-profit' : 'text-loss'}`;
+    const totPnL = summaryData.total_pnl || 0;
+    const totPct = summaryData.total_pnl_percent || 0;
+    pnlEl.textContent = `${formatCurrency(totPnL)} (${formatPercent(totPct)})`;
+    pnlEl.className = `text-2xl font-bold font-mono ${totPnL >= 0 ? 'text-profit' : 'text-loss'}`;
+
+    const divEl = document.getElementById('totalDividends');
+    if (divEl) {
+      divEl.textContent = `${formatCurrency(summaryData.estimated_annual_dividends || 0)}/anno (${(summaryData.estimated_dividend_yield || 0).toFixed(2)}%)`;
+    }
 
     modifiedHoldings.clear();
     updateSaveBar();
     renderTable();
-
-    const allocationData = portfolioData.map(item => ({ 
-      ticker: item.ticker, 
-      value: (item.current_price || item.avg_purchase_price) * item.quantity 
-    }));
-    allocationData.sort((a, b) => b.value - a.value);
-    drawPieChart(allocationData);
+    updateAllocationChart();
 
   } catch (error) {
     showToast('Errore nel caricamento del portafoglio', 'error');
@@ -233,7 +257,6 @@ const loadPortfolio = async () => {
   }
 };
 
-// Global delete function
 window.deleteHolding = async (id) => {
   const item = portfolioData.find(h => h.id === id);
   const ticker = item ? item.ticker : 'questa holding';
@@ -249,15 +272,18 @@ window.deleteHolding = async (id) => {
   }
 };
 
-// Modals Setup
+// Modals
 const holdingModal = document.getElementById('holdingModal');
 const confirmSaveModal = document.getElementById('confirmSaveModal');
 const importModal = document.getElementById('importModal');
 
-const openAddModal = () => {
+const openAddModal = (defaultTicker = '') => {
   document.getElementById('holdingForm').reset();
   document.getElementById('holdingId').value = '';
   document.getElementById('modalTitle').textContent = 'Aggiungi Titolo al Portafoglio';
+  if (defaultTicker) {
+    document.getElementById('tickerInput').value = defaultTicker;
+  }
   holdingModal.classList.add('active');
 };
 
@@ -268,8 +294,27 @@ const closeImportModal = () => importModal.classList.remove('active');
 document.addEventListener('DOMContentLoaded', () => {
   loadPortfolio();
 
-  // Button Listeners
-  document.getElementById('btnAddHolding').addEventListener('click', openAddModal);
+  // Check URL query params for ?add=TICKER
+  const params = new URLSearchParams(window.location.search);
+  const addTicker = params.get('add');
+  if (addTicker) {
+    openAddModal(addTicker.toUpperCase());
+  }
+
+  // Allocation toggle
+  const allocGroup = document.getElementById('allocTypeGroup');
+  if (allocGroup) {
+    allocGroup.querySelectorAll('.timeframe-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        allocGroup.querySelectorAll('.timeframe-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentAllocView = btn.dataset.type;
+        updateAllocationChart();
+      });
+    });
+  }
+
+  document.getElementById('btnAddHolding').addEventListener('click', () => openAddModal());
   document.getElementById('closeModal').addEventListener('click', closeHoldingModal);
   document.getElementById('cancelModal').addEventListener('click', closeHoldingModal);
 
@@ -297,9 +342,9 @@ document.addEventListener('DOMContentLoaded', () => {
     listEl.innerHTML = Array.from(modifiedHoldings.values()).map(m => `
       <div class="change-item">
         <div>
-          <span class="font-bold text-primary">${m.ticker}</span>
+          <span class="font-bold text-primary font-mono">${m.ticker}</span>
         </div>
-        <div class="text-right">
+        <div class="text-right font-mono text-xs">
           <div>Q.tà: <span class="text-muted line-through">${m.originalQty}</span> ➔ <strong class="text-profit">${m.newQty}</strong></div>
           <div>Prz: <span class="text-muted line-through">${formatCurrency(m.originalPrice)}</span> ➔ <strong class="text-profit">${formatCurrency(m.newPrice)}</strong></div>
         </div>
@@ -309,7 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
     confirmSaveModal.classList.add('active');
   });
 
-  // Execute Batch Save after confirmation
+  // Execute Batch Save
   document.getElementById('btnExecuteSave').addEventListener('click', async () => {
     const btn = document.getElementById('btnExecuteSave');
     btn.disabled = true;
@@ -335,7 +380,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Form Submit for Add/Edit Single Holding
+  // Add Single Holding
   document.getElementById('holdingForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const data = {
@@ -356,7 +401,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Autocomplete ticker search
+  // Autocomplete
   let timeout = null;
   const tickerInput = document.getElementById('tickerInput');
   const resultsDiv = document.getElementById('autocompleteResults');
@@ -377,7 +422,7 @@ document.addEventListener('DOMContentLoaded', () => {
                  onmouseover="this.style.backgroundColor='var(--surface-hover)'" 
                  onmouseout="this.style.backgroundColor='transparent'"
                  onclick="document.getElementById('tickerInput').value='${r.ticker}';document.getElementById('autocompleteResults').style.display='none';">
-              <strong class="text-primary">${r.ticker}</strong> — <span class="text-secondary">${r.name}</span>
+              <strong class="text-primary font-mono">${r.ticker}</strong> — <span class="text-secondary">${r.name}</span>
             </div>
           `).join('');
           resultsDiv.style.display = 'block';
@@ -416,7 +461,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Import Modal & Submission
+  // Import CSV
   document.getElementById('btnImport').addEventListener('click', () => {
     document.getElementById('csvFileInput').value = '';
     importModal.classList.add('active');

@@ -17,8 +17,8 @@ router = APIRouter(prefix="/api/advice", tags=["advice"])
 async def list_advices(
     market: Optional[str] = None,
     action: Optional[str] = None,
-    date: Optional[str] = None, # Formato YYYY-MM-DD per filtrare per singolo giorno
-    days: int = Query(7),       # Default: ultima settimana
+    date: Optional[str] = None,
+    days: int = Query(7),
     skip: int = 0,
     limit: int = 20,
     db: AsyncSession = Depends(get_db)
@@ -32,14 +32,12 @@ async def list_advices(
         
     if date:
         try:
-            # Filtro per specifico giorno (da 00:00 a 23:59:59 UTC)
             day_start = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
             day_end = day_start + timedelta(days=1)
             query = query.where(Advice.timestamp >= day_start).where(Advice.timestamp < day_end)
         except ValueError:
             pass
     else:
-        # Finestra temporale: solo l'ultima settimana (default 7 giorni)
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         query = query.where(Advice.timestamp >= cutoff)
         
@@ -86,7 +84,6 @@ async def list_advices(
 
 @router.get("/latest")
 async def get_latest(db: AsyncSession = Depends(get_db)):
-    # Ritorna gli ultimi blocchi della settimana per Borsa Italiana e Borsa Americana
     cutoff = datetime.now(timezone.utc) - timedelta(days=7)
     result = await db.execute(
         select(Advice)
@@ -120,6 +117,15 @@ async def get_latest(db: AsyncSession = Depends(get_db)):
             "timestamp": str(a.timestamp) if a.timestamp else str(a.created_at)
         })
     return output
+
+@router.post("/stock/{ticker}")
+async def analyze_stock_on_demand(ticker: str, db: AsyncSession = Depends(get_db)):
+    """
+    Richiede un'analisi istantanea approfondita a Google Gemini 3.7 Flash per un singolo titolo.
+    """
+    advisor = AdvisorService()
+    analysis = await advisor.analyze_single_stock(ticker, db)
+    return analysis
 
 @router.post("/{advice_id}/toggle-follow")
 @router.post("/{advice_id}/follow")

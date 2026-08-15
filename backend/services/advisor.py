@@ -65,7 +65,6 @@ class AdvisorService:
             news_items = await self.sentiment_service.get_combined_market_context(s.ticker, s.name or s.ticker)
             top_headlines = [n['title'] for n in news_items[:3]]
 
-            # Trova se posseduto in portafoglio
             holding = next((h for h in holdings if h.stock_id == s.id), None)
 
             stock_info = {
@@ -101,7 +100,6 @@ class AdvisorService:
         advices_created = []
         now_utc = datetime.now(timezone.utc)
 
-        # Stock ID di riferimento per compatibilità schema database
         it_primary_stock = next((s for s in stocks if s.ticker.upper().endswith('.MI') or (s.market and s.market.upper() == 'IT')), stocks[0] if stocks else None)
         us_primary_stock = next((s for s in stocks if not s.ticker.upper().endswith('.MI')), stocks[0] if stocks else None)
 
@@ -143,7 +141,7 @@ class AdvisorService:
             adv_us = Advice(
                 stock_id=us_primary_stock.id if us_primary_stock else None,
                 market="US",
-                title=us_data.get('title', 'Borsa Americana (Wall Street / S&P500 & Nasdaq)'),
+                title=us_data.get('title', 'Borsa Americana (Wall Street / S&P 500 & Nasdaq)'),
                 action=us_data.get('action', 'MANTENIMENTO').upper(),
                 overview=us_data.get('overview', ''),
                 reasoning=us_data.get('strategy', ''),
@@ -170,6 +168,116 @@ class AdvisorService:
         await db_session.commit()
         return advices_created
 
+    async def analyze_single_stock(self, ticker: str, db_session: AsyncSession) -> dict:
+        """
+        Genera un'analisi approfondita istantanea su richiesta per un singolo titolo con Google Gemini 3.7 Flash.
+        """
+        ticker_up = ticker.strip().upper()
+        deep_data = await MarketDataService.fetch_stock_deep_dive(ticker_up)
+        
+        # News contestuali
+        name = deep_data.get("name", ticker_up)
+        news_items = await self.sentiment_service.get_combined_market_context(ticker_up, name)
+        headlines = [n["title"] for n in news_items[:5]]
+
+        # Profile settings
+        result = await db_session.execute(select(UserSettings).limit(1))
+        user_settings = result.scalars().first()
+        strategy = user_settings.strategy if user_settings else "mixed"
+
+        prompt = f"""
+Sei un Senior Equity Research Analyst & Quantitative Portfolio Strategist.
+Fornisci un'analisi approfondita e una raccomandazione operativa chiara per il titolo {ticker_up} ({name}).
+
+DATI FONDAMENTALI E DI MERCATO:
+- Prezzo Attuale: {deep_data.get('current_price')} {deep_data.get('currency')}
+- Variazione Giornaliera: {deep_data.get('change_percent')}%
+- Range 52 Settimane: {deep_data.get('fifty_two_week_low')} - {deep_data.get('fifty_two_week_high')} {deep_data.get('currency')}
+- P/E Ratio: {deep_data.get('pe_ratio') or 'N/A'} (Forward P/E: {deep_data.get('forward_pe') or 'N/A'})
+- EPS: {deep_data.get('eps') or 'N/A'}
+- Beta: {deep_data.get('beta') or 'N/A'}
+- Dividend Yield: {deep_data.get('dividend_yield') or 'N/A'}%
+- Settore / Industria: {deep_data.get('sector')} / {deep_data.get('industry')}
+
+INDICATORI TECNICI:
+- RSI (14 periodi): {deep_data.get('technical', {}).get('rsi_14')} ({deep_data.get('technical', {}).get('rsi_status')})
+- Media Mobile 20 giorni (SMA 20): {deep_data.get('technical', {}).get('sma_20') or 'N/A'}
+- Media Mobile 50 giorni (SMA 50): {deep_data.get('technical', {}).get('sma_50') or 'N/A'}
+- Trend Configurato: {deep_data.get('technical', {}).get('trend')}
+
+ULTIME NOTIZIE & SENTIMENT RECENTE:
+{json.dumps(headlines, ensure_ascii=False, indent=2)}
+
+PROFILO UTENTE: Strategia {strategy}.
+
+ISTRUZIONI:
+1. Valuta il quadro tecnico e fondamentale integrando le notizie.
+2. Definisci una raccomandazione categorica tra: ACCUMULO (Buy), MANTENIMENTO (Hold), PRESA_PROFITTO (Sell), PRUDENZA.
+3. Fornisci un Target Price numerico realistico a 3-6 mesi e un livello di Stop Loss prudenziale.
+4. Elenca i principali catalizzatori positivi (Bull Case) e i fattori di rischio (Bear Case).
+5. Esprimi un giudizio tecnico sintetico e la strategia operativa per l'investitore.
+
+Rispondi ESCLUSIVAMENTE in formato JSON con questo schema:
+{{
+    "ticker": "{ticker_up}",
+    "name": "{name}",
+    "action": "ACCUMULO" | "MANTENIMENTO" | "PRESA_PROFITTO" | "PRUDENZA",
+    "action_label": "🟢 Accumulo / Buy" | "🟡 Mantenimento / Hold" | "🔴 Presa Profitto / Sell" | "🛡️ Prudenza",
+    "target_price": 0.0,
+    "stop_loss": 0.0,
+    "upside_potential_pct": 0.0,
+    "timeframe": "Breve Termine" | "Medio Termine" | "Lungo Termine",
+    "confidence": "ALTA" | "MEDIA" | "BASSA",
+    "summary": "Sintesi esecutiva dell'analisi in 2-3 frasi...",
+    "bull_case": "Fattori di crescita, vantaggi competitivi e catalizzatori rialzisti...",
+    "bear_case": "Rischi di mercato, concorrenza, tassi, trimestrali...",
+    "technical_verdict": "Sintesi tecnica basata su RSI, supporti/resistenze e medie mobili...",
+    "operational_strategy": "Consiglio pratico di posizionamento..."
+}}
+"""
+        response_json = await asyncio.to_thread(self._call_gemini, prompt)
+        if response_json and "action" in response_json:
+            return response_json
+
+        # Fallback quantitativo se Gemini non risponde
+        price = deep_data.get('current_price', 10.0)
+        rsi = deep_data.get('technical', {}).get('rsi_14', 50.0)
+        
+        if rsi < 35:
+            action = "ACCUMULO"
+            action_label = "🟢 Accumulo / Buy"
+            tp = round(price * 1.12, 2)
+            sl = round(price * 0.94, 2)
+            conf = "MEDIA"
+        elif rsi > 70:
+            action = "PRESA_PROFITTO"
+            action_label = "🔴 Presa Profitto / Sell"
+            tp = round(price * 0.95, 2)
+            sl = round(price * 0.98, 2)
+            conf = "MEDIA"
+        else:
+            action = "MANTENIMENTO"
+            action_label = "🟡 Mantenimento / Hold"
+            tp = round(price * 1.06, 2)
+            sl = round(price * 0.92, 2)
+            conf = "MEDIA"
+
+        return {
+            "ticker": ticker_up,
+            "name": name,
+            "action": action,
+            "action_label": action_label,
+            "target_price": tp,
+            "stop_loss": sl,
+            "upside_potential_pct": round(((tp - price) / price * 100), 2) if price else 0.0,
+            "timeframe": "Medio Termine",
+            "confidence": conf,
+            "summary": f"Valutazione quantitativa per {ticker_up}. L'indicatore RSI({rsi}) suggerisce una configurazione di {action.lower()}.",
+            "bull_case": "Solido posizionamento settoriale e potenziale espansione dei multipli nel medio periodo.",
+            "bear_case": "Possibile volatilità legata a fattori macroeconomici e dati trimestrali.",
+            "technical_verdict": f"RSI a {rsi}, trend attuale {deep_data.get('technical', {}).get('trend', 'neutro')}.",
+            "operational_strategy": "Mantenere una corretta diversificazione e impostare opportuni ordini di stop loss."
+        }
 
     def _build_macro_prompt(self, italian_stocks: list, us_stocks: list, user_settings: dict) -> str:
         return f"""
@@ -250,7 +358,7 @@ Rispondi ESCLUSIVAMENTE in formato JSON con la seguente struttura:
             return {}
         try:
             model_name = settings.GEMINI_MODEL or 'gemini-3.7-flash'
-            logger.info(f"Chiamata a Google Gemini con modello: {model_name} (Macro Blocchi Borsa)")
+            logger.info(f"Chiamata a Google Gemini con modello: {model_name}")
             response = self.client.models.generate_content(
                 model=model_name,
                 contents=prompt,

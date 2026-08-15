@@ -84,14 +84,21 @@ export const api = {
     body: JSON.stringify({ new_password })
   }),
 
-
-  // Stocks
+  // Stocks & Deep-Dive
   getStocks: () => fetchApi('/stocks/'),
   addStock: (data) => fetchApi('/stocks/', { method: 'POST', body: JSON.stringify(data) }),
   deleteStock: (id) => fetchApi(`/stocks/${id}`, { method: 'DELETE' }),
   searchStocks: (query) => fetchApi(`/stocks/search?q=${encodeURIComponent(query)}`),
+  getStockDetails: (ticker) => fetchApi(`/stocks/${encodeURIComponent(ticker)}/details`),
+  getStockCandles: (ticker, timeframe = '1m') => fetchApi(`/stocks/${encodeURIComponent(ticker)}/candles?timeframe=${timeframe}`),
   getStockHistory: (id, days = 7) => fetchApi(`/stocks/${id}/history?days=${days}`),
   
+  // Watchlist
+  getWatchlist: () => fetchApi('/watchlist/'),
+  addToWatchlist: (data) => fetchApi('/watchlist/', { method: 'POST', body: JSON.stringify(data) }),
+  removeFromWatchlist: (id) => fetchApi(`/watchlist/${id}`, { method: 'DELETE' }),
+  removeWatchlistByTicker: (ticker) => fetchApi(`/watchlist/ticker/${encodeURIComponent(ticker)}`, { method: 'DELETE' }),
+
   // Portfolio
   getPortfolio: () => fetchApi('/portfolio/'),
   getPortfolioSummary: () => fetchApi('/portfolio/summary'),
@@ -126,18 +133,21 @@ export const api = {
     return response.json();
   },
   
-  // Dashboard
+  // Dashboard & Live Markets
   getDashboard: () => fetchApi('/dashboard/'),
+  getIndices: () => fetchApi('/dashboard/indices'),
+  getHeatmap: () => fetchApi('/dashboard/heatmap'),
   getPerformance: (days = 30) => fetchApi(`/dashboard/performance?days=${days}`),
   
-  // Advice
+  // Advice & AI On-Demand
   getAdvice: (params = {}) => {
     const qs = new URLSearchParams(params).toString();
     return fetchApi(`/advice${qs ? '?' + qs : ''}`);
   },
   getLatestAdvice: () => fetchApi('/advice/latest'),
   followAdvice: (id) => fetchApi(`/advice/${id}/follow`, { method: 'POST' }),
-  generateAdvice: () => fetchApi('/advice/generate', { method: 'POST' }),
+  generateAdvice: (force = false) => fetchApi(`/advice/generate${force ? '?force=true' : ''}`, { method: 'POST' }),
+  analyzeStockOnDemand: (ticker) => fetchApi(`/advice/stock/${encodeURIComponent(ticker)}`, { method: 'POST' }),
   
   // Settings
   getSettings: () => fetchApi('/settings/'),
@@ -147,5 +157,3 @@ export const api = {
   deleteAlertRule: (id) => fetchApi(`/settings/alerts/${id}`, { method: 'DELETE' }),
   testTelegram: () => fetchApi('/settings/telegram/test', { method: 'POST' })
 };
-
-

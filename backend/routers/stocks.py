@@ -45,25 +45,25 @@ async def list_stocks(
 
 @router.post("/", response_model=StockResponse)
 async def add_stock(stock: StockCreate, db: AsyncSession = Depends(get_db)):
-    # Auto-detect if missing
     name = stock.name
     market = stock.market
+    ticker = stock.ticker.upper().strip()
     
     if not name or not market:
         try:
-            info = yf.Ticker(stock.ticker).info
+            info = yf.Ticker(ticker).info
             if not name:
-                name = info.get('shortName', stock.ticker)
+                name = info.get('shortName', ticker)
             if not market:
-                market = 'US' # Simplified fallback
+                market = 'IT' if ticker.endswith('.MI') else 'US'
         except Exception:
             pass
 
     new_stock = Stock(
-        ticker=stock.ticker.upper(),
-        name=name,
-        market=market,
-        currency="USD" if market == "US" else "EUR",
+        ticker=ticker,
+        name=name or ticker,
+        market=market or ("IT" if ticker.endswith(".MI") else "US"),
+        currency="EUR" if (market == "IT" or ticker.endswith(".MI")) else "USD",
         is_active=True
     )
     
@@ -86,6 +86,27 @@ async def remove_stock(stock_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"status": "success"}
 
+@router.get("/search")
+async def search_ticker(q: str):
+    results = await MarketDataService.search_ticker(q)
+    return results
+
+@router.get("/{ticker}/details")
+async def get_stock_deep_dive(ticker: str):
+    """
+    Ritorna la scheda completa del titolo con fondamentali (PE, EPS, Beta, 52W range) e indicatori tecnici (RSI, Medie Mobili).
+    """
+    data = await MarketDataService.fetch_stock_deep_dive(ticker)
+    return data
+
+@router.get("/{ticker}/candles")
+async def get_stock_candles(ticker: str, timeframe: str = Query("1m", regex="^(1d|1w|1m|6m|1y|5y)$")):
+    """
+    Ritorna serie di candele/prezzi per i grafici TradingView (timeframe: 1d, 1w, 1m, 6m, 1y, 5y).
+    """
+    candles = await MarketDataService.fetch_stock_candles(ticker, timeframe)
+    return candles
+
 @router.get("/{stock_id}/history")
 async def get_history(
     stock_id: int, 
@@ -100,8 +121,3 @@ async def get_history(
     )
     history = result.scalars().all()
     return history
-
-@router.get("/search")
-async def search_ticker(q: str):
-    results = await MarketDataService.search_ticker(q)
-    return results

@@ -20,7 +20,8 @@ from backend.routers import (
     dashboard_router,
     advice_router,
     settings_router,
-    auth_router
+    auth_router,
+    watchlist_router
 )
 
 # Configura il logging
@@ -93,6 +94,8 @@ app.include_router(portfolio_router, dependencies=[Depends(get_current_user)])
 app.include_router(dashboard_router, dependencies=[Depends(get_current_user)])
 app.include_router(advice_router, dependencies=[Depends(get_current_user)])
 app.include_router(settings_router, dependencies=[Depends(get_current_user)])
+app.include_router(watchlist_router, dependencies=[Depends(get_current_user)])
+
 
 
 # Check if frontend exists to mount static files

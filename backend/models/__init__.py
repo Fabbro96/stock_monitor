@@ -4,6 +4,7 @@ from .sentiment import Sentiment
 from .advice import Advice
 from .settings import UserSettings, AlertRule
 from .user import User
+from .watchlist import WatchlistItem
 
 __all__ = [
     "Stock",
@@ -13,6 +14,8 @@ __all__ = [
     "Advice",
     "UserSettings",
     "AlertRule",
-    "User"
+    "User",
+    "WatchlistItem"
 ]
+
 

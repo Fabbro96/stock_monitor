@@ -6,12 +6,12 @@ from datetime import datetime, timedelta, timezone
 from backend.database import get_db
 from backend.models.portfolio import Holding
 from backend.models.stock import Stock
-
+from backend.models.watchlist import WatchlistItem
 from backend.models.settings import AlertRule
 from backend.models.advice import Advice
 
 from backend.services.market_data import MarketDataService
-from backend.routers.portfolio import get_summary
+from backend.routers.portfolio import get_summary, get_portfolio
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -22,7 +22,7 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
     
     # 2. Recent advices
     advices_result = await db.execute(
-        select(Advice).order_by(Advice.timestamp.desc()).limit(5)
+        select(Advice).order_by(Advice.timestamp.desc()).limit(4)
     )
     recent_advices = advices_result.scalars().all()
     
@@ -59,27 +59,54 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
         }
     }
     
-    # 5. Top movers
-    top_movers = {"gainers": [], "losers": []}
-    
     return {
         "portfolio_summary": portfolio_summary,
         "recent_advices": recent_advices,
         "active_alerts_count": active_alerts_count,
-        "market_status": market_status,
-        "top_movers": top_movers
+        "market_status": market_status
     }
+
+@router.get("/indices")
+async def get_indices():
+    """
+    Ritorna le quotazioni in tempo reale degli indici e commodity globali per la barra scorrevole.
+    """
+    indices = await MarketDataService.fetch_market_indices()
+    return indices
+
+@router.get("/heatmap")
+async def get_market_heatmap(db: AsyncSession = Depends(get_db)):
+    """
+    Ritorna la panoramica di tutti i titoli monitorati e in portafoglio con variazione % odierna per la Heatmap.
+    """
+    result = await db.execute(select(Stock).where(Stock.is_active == True))
+    stocks = result.scalars().all()
+
+    heatmap_items = []
+    for stock in stocks:
+        price_data = await MarketDataService.fetch_current_price(stock.ticker)
+        if price_data:
+            heatmap_items.append({
+                "ticker": stock.ticker,
+                "name": stock.name or stock.ticker,
+                "market": stock.market or ("IT" if stock.ticker.endswith(".MI") else "US"),
+                "currency": stock.currency or ("EUR" if stock.ticker.endswith(".MI") else "USD"),
+                "current_price": price_data.get("close", 0.0),
+                "change_percent": price_data.get("change_percent", 0.0),
+                "change_abs": price_data.get("change_abs", 0.0),
+                "day_high": price_data.get("day_high", 0.0),
+                "day_low": price_data.get("day_low", 0.0),
+                "volume": price_data.get("volume", 0)
+            })
+
+    heatmap_items.sort(key=lambda x: abs(x["change_percent"]), reverse=True)
+    return heatmap_items
 
 @router.get("/performance")
 async def get_performance(days: int = Query(30), db: AsyncSession = Depends(get_db)):
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    
-    performance = []
-    for i in range(days):
-        day = cutoff + timedelta(days=i)
-        performance.append({
-            "date": day.strftime("%Y-%m-%d"),
-            "value": 10000.0 + (i * 50.0) # Base incrementale per grafico storico
-        })
-        
+    """
+    Ritorna l'andamento reale calcolato del valore complessivo del portafoglio giorno per giorno.
+    """
+    portfolio = await get_portfolio(db)
+    performance = await MarketDataService.calculate_portfolio_history(portfolio, days=days)
     return {"data": performance}

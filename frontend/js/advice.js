@@ -52,7 +52,7 @@ const renderAdviceCard = (advice) => {
                 return `
                   <tr>
                     <td>
-                      <div class="font-bold text-primary">${s.ticker}</div>
+                      <a href="#" class="stock-ticker-link font-bold font-mono text-sm" data-stock="${s.ticker}">${s.ticker}</a>
                       <div class="text-xs text-muted">${s.name || ''}</div>
                     </td>
                     <td class="text-center">
@@ -74,7 +74,6 @@ const renderAdviceCard = (advice) => {
     `;
   }
 
-  // Bottone interattivo Letto / Non Letto
   const followBtnHtml = isFollowed
     ? `<button class="btn btn-sm btn-success flex items-center gap-1 text-xs py-1.5 px-3" onclick="window.toggleFollow(${advice.id})">
          <span>✅ Letto</span>
@@ -91,7 +90,7 @@ const renderAdviceCard = (advice) => {
         <div>
           <div class="flex items-center gap-3 mb-1 flex-wrap">
             <span style="font-size: 1.6rem;">${flag}</span>
-            <h3 class="text-xl font-bold">${advice.title || (isIT ? 'Borsa Italiana (Piazza Affari)' : 'Borsa Americana (Wall Street)')}</h3>
+            <h3 class="text-xl font-bold">${advice.title || (isIT ? 'Borsa Italiana (Piazza Affari)' : 'Wall Street')}</h3>
             <span class="badge ${actionBadge}">${actionText}</span>
           </div>
           <div class="text-xs text-muted">Analisi elaborata: <strong>${formatDateTime(advice.timestamp)}</strong></div>
@@ -110,7 +109,7 @@ const renderAdviceCard = (advice) => {
 
       <!-- Strategy Section -->
       ${advice.strategy ? `
-      <div class="mb-4 bg-[var(--bg-color)] p-4 rounded border border-border-color">
+      <div class="mb-4 p-4 rounded border border-border-color" style="background: rgba(0,0,0,0.2);">
         <h4 class="text-xs font-bold text-muted uppercase tracking-wider mb-1">🎯 Strategia Operativa & Piano d'Azione</h4>
         <p class="text-primary leading-relaxed" style="font-size: 0.95rem;">${advice.strategy}</p>
       </div>` : ''}
@@ -120,7 +119,7 @@ const renderAdviceCard = (advice) => {
 
       <!-- Risks Section -->
       ${advice.risks ? `
-      <div class="mt-4 p-3 rounded" style="background: rgba(239, 68, 68, 0.08); border-left: 3px solid var(--danger-color);">
+      <div class="mt-4 p-3 rounded" style="background: rgba(244, 63, 94, 0.08); border-left: 3px solid var(--danger-color);">
         <h4 class="text-xs font-bold mb-1 text-danger flex items-center gap-1">
           <span>⚠️ Punti di Attenzione & Rischi Chiave</span>
         </h4>
@@ -159,7 +158,6 @@ const loadAdvice = async (page = 1, append = false) => {
     const listEl = document.getElementById('adviceList');
     if (!append) listEl.innerHTML = '';
 
-    // Filtro locale aggiuntivo se è presente una stringa di ricerca
     let filtered = adviceList;
     if (currentFilters.q) {
       const query = currentFilters.q.toUpperCase();
@@ -175,13 +173,12 @@ const loadAdvice = async (page = 1, append = false) => {
     }
 
     if (filtered.length === 0 && !append) {
-      listEl.innerHTML = '<div class="card text-center text-muted py-8">Nessuna analisi strategica trovata per i criteri selezionati. Usa il pulsante "Genera Analisi Ora" o seleziona un\'altra data.</div>';
+      listEl.innerHTML = '<div class="card text-center text-muted py-8">Nessuna analisi strategica trovata per i criteri selezionati. Usa il pulsante "Genera Analisi Macro Ora" o seleziona un\'altra data.</div>';
       document.getElementById('btnLoadMore').style.display = 'none';
       return;
     }
 
     listEl.innerHTML += filtered.map(renderAdviceCard).join('');
-    
     document.getElementById('btnLoadMore').style.display = adviceList.length === 10 ? 'block' : 'none';
 
   } catch (error) {
@@ -196,7 +193,6 @@ window.toggleFollow = async (id) => {
     const res = await api.followAdvice(id);
     showToast(res.followed ? 'Segnato come letto' : 'Segnato come non letto', 'success');
     
-    // Aggiorna solo il pulsante corrispondente
     const container = document.getElementById(`follow-container-${id}`);
     if (container) {
       const isFollowed = Boolean(res.followed);
@@ -220,11 +216,9 @@ const checkMarketStatus = async () => {
     const marketStatus = data.market_status || {};
     const itStatus = marketStatus.IT === 'OPEN';
     const usStatus = marketStatus.US === 'OPEN';
-    const anyOpen = Boolean(marketStatus.ANY_OPEN === 'OPEN');
 
     const badgeIT = document.getElementById('marketStatusIT');
     const badgeUS = document.getElementById('marketStatusUS');
-    const btn = document.getElementById('btnGenerate');
 
     if (badgeIT) {
       if (itStatus) {
@@ -245,22 +239,90 @@ const checkMarketStatus = async () => {
         badgeUS.textContent = '🔴 Chiusa (15:30-22:00)';
       }
     }
-
-    if (btn) {
-      if (anyOpen) {
-        btn.title = 'Genera nuova analisi macro per i mercati aperti';
-      } else {
-        btn.title = 'Tutti i mercati sono chiusi. Milano chiude alle 17:30, Wall Street alle 22:00.';
-      }
-    }
   } catch(e) {
     console.error('Errore recupero stato mercati', e);
+  }
+};
+
+const runSingleStockAnalysis = async () => {
+  const input = document.getElementById('aiSingleTicker');
+  const ticker = input.value.trim().toUpperCase();
+  if (!ticker) {
+    showToast('Inserisci un ticker valido da analizzare', 'error');
+    return;
+  }
+
+  const resContainer = document.getElementById('singleStockAiResult');
+  const btn = document.getElementById('btnAnalyzeSingle');
+
+  btn.disabled = true;
+  btn.textContent = 'Analisi in corso...';
+  resContainer.style.display = 'block';
+  resContainer.innerHTML = '<div class="flex justify-center items-center py-6"><div class="spinner"></div></div>';
+
+  try {
+    const result = await api.analyzeStockOnDemand(ticker);
+    const actionBadgeClass = result.action === 'ACCUMULO' || result.action === 'BUY' ? 'badge-buy' : (result.action === 'PRESA_PROFITTO' || result.action === 'SELL' ? 'badge-sell' : 'badge-hold');
+
+    resContainer.innerHTML = `
+      <div class="card p-4 border border-border-color" style="background: rgba(0,0,0,0.3); border-left: 4px solid var(--primary-color);">
+        <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
+          <div class="flex items-center gap-2">
+            <span class="text-xl font-bold font-mono text-primary">${result.ticker}</span>
+            <span class="text-sm text-secondary">${result.name}</span>
+            <span class="badge ${actionBadgeClass}">${result.action_label || result.action}</span>
+          </div>
+          <div class="text-xs text-muted">
+            Confidenza: <strong class="text-primary">${result.confidence}</strong> • Orizzonte: <strong class="text-primary">${result.timeframe}</strong>
+          </div>
+        </div>
+
+        <div class="grid gap-3 mb-3" style="display: grid; grid-template-columns: 1fr 1fr;">
+          <div class="p-2 rounded border border-border-color" style="background: rgba(0,0,0,0.2);">
+            <div class="text-xs text-muted">🎯 Target Price Stimato</div>
+            <div class="text-lg font-bold text-primary font-mono">${formatCurrency(result.target_price)} <span class="text-xs text-profit">(+${result.upside_potential_pct || 0}%)</span></div>
+          </div>
+          <div class="p-2 rounded border border-border-color" style="background: rgba(0,0,0,0.2);">
+            <div class="text-xs text-muted">🛡️ Stop Loss Prudenziale</div>
+            <div class="text-lg font-bold text-danger font-mono">${result.stop_loss ? formatCurrency(result.stop_loss) : '--'}</div>
+          </div>
+        </div>
+
+        <p class="text-sm text-primary leading-relaxed mb-3">${result.summary || ''}</p>
+
+        <div class="grid gap-2 text-xs mb-3" style="display: grid; grid-template-columns: 1fr 1fr;">
+          <div class="p-2.5 rounded" style="background: rgba(16, 185, 129, 0.08); border-left: 2px solid var(--success-color);">
+            <strong class="text-profit block mb-1">🟢 Bull Case & Catalizzatori</strong>
+            <span class="text-secondary leading-normal">${result.bull_case || '--'}</span>
+          </div>
+          <div class="p-2.5 rounded" style="background: rgba(244, 63, 94, 0.08); border-left: 2px solid var(--danger-color);">
+            <strong class="text-loss block mb-1">🔴 Bear Case & Rischi</strong>
+            <span class="text-secondary leading-normal">${result.bear_case || '--'}</span>
+          </div>
+        </div>
+
+        <div class="flex justify-between items-center flex-wrap gap-2 pt-2 border-t border-border-color">
+          <div class="text-xs text-secondary">💡 <strong>Strategia:</strong> ${result.operational_strategy || '--'}</div>
+          <button class="btn btn-ghost btn-sm" onclick="window.openStockModal('${result.ticker}')">Apri Scheda Completa ➔</button>
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    resContainer.innerHTML = `<div class="alert-error text-center py-4 text-xs">Errore analisi: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Analizza Titolo con IA ➔';
   }
 };
 
 document.addEventListener('DOMContentLoaded', () => {
   loadAdvice(1);
   checkMarketStatus();
+
+  document.getElementById('btnAnalyzeSingle').addEventListener('click', runSingleStockAnalysis);
+  document.getElementById('aiSingleTicker').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') runSingleStockAnalysis();
+  });
 
   document.getElementById('btnLoadMore').addEventListener('click', () => {
     currentPage++;
@@ -298,12 +360,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnGenerate').addEventListener('click', async () => {
     try {
       showLoading('adviceContent');
-      await api.generateAdvice();
+      await api.generateAdvice(true);
       showToast('Analisi per Borsa Italiana e Americana generata con successo!', 'success');
       loadAdvice(1);
     } catch(e) {
-      const errorMsg = e.message || 'I mercati finanziari sono attualmente chiusi. L\'IA non genera consigli a borsa chiusa.';
-      showToast(errorMsg, 'error');
+      showToast(e.message || 'Errore durante la generazione dell\'analisi', 'error');
     } finally {
       hideLoading('adviceContent');
     }

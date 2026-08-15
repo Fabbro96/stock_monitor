@@ -49,7 +49,7 @@ async def get_portfolio(db: AsyncSession = Depends(get_db)):
         if not stock:
             continue
             
-        # Get latest price
+        # Get latest price from PriceHistory or fallback to MarketDataService
         price_result = await db.execute(
             select(PriceHistory)
             .where(PriceHistory.stock_id == h.stock_id)
@@ -57,8 +57,12 @@ async def get_portfolio(db: AsyncSession = Depends(get_db)):
             .limit(1)
         )
         latest_price = price_result.scalars().first()
-        current_price = latest_price.close if latest_price and latest_price.close else h.avg_purchase_price
+        current_price = latest_price.close if latest_price and latest_price.close else None
         
+        if not current_price:
+            price_data = await MarketDataService.fetch_current_price(stock.ticker)
+            current_price = price_data.get("close", h.avg_purchase_price)
+
         pnl = calculate_pnl(current_price, h.avg_purchase_price, h.quantity)
         
         portfolio.append({
@@ -66,9 +70,13 @@ async def get_portfolio(db: AsyncSession = Depends(get_db)):
             "stock_id": h.stock_id,
             "ticker": stock.ticker,
             "name": stock.name or stock.ticker,
+            "market": stock.market or ("IT" if stock.ticker.endswith(".MI") else "US"),
+            "currency": stock.currency or ("EUR" if stock.ticker.endswith(".MI") else "USD"),
             "quantity": h.quantity,
             "avg_purchase_price": h.avg_purchase_price,
             "current_price": current_price,
+            "total_value": round(h.quantity * current_price, 2),
+            "total_invested": round(h.quantity * h.avg_purchase_price, 2),
             "pnl_absolute": pnl["pnl_absolute"],
             "pnl_percent": pnl["pnl_percent"],
             "purchase_date": str(h.purchase_date) if h.purchase_date else None,
@@ -85,14 +93,46 @@ async def get_summary(db: AsyncSession = Depends(get_db)):
     total_value = sum(h["quantity"] * h["current_price"] for h in portfolio)
     total_pnl = total_value - total_invested
     total_pnl_percent = (total_pnl / total_invested * 100) if total_invested > 0 else 0.0
-    
+
+    # Top Gainer & Top Loser
+    sorted_by_pnl = sorted(portfolio, key=lambda x: x["pnl_percent"], reverse=True)
+    top_gainer = sorted_by_pnl[0] if sorted_by_pnl and sorted_by_pnl[0]["pnl_percent"] > 0 else None
+    top_loser = sorted_by_pnl[-1] if sorted_by_pnl and sorted_by_pnl[-1]["pnl_percent"] < 0 else None
+
+    # Market Allocation Breakdown
+    market_allocation = {"IT": 0.0, "US": 0.0, "EU": 0.0}
+    for h in portfolio:
+        m = (h.get("market") or "US").upper()
+        if m in market_allocation:
+            market_allocation[m] += h["total_value"]
+        else:
+            market_allocation["US"] += h["total_value"]
+
+    # Dividend estimation (approx based on deep dive cache or default yield)
+    estimated_annual_dividends = 0.0
+    for h in portfolio:
+        deep = await MarketDataService.fetch_stock_deep_dive(h["ticker"])
+        dy = deep.get("dividend_yield")
+        if dy and dy > 0:
+            estimated_annual_dividends += (h["total_value"] * (dy / 100.0))
+        elif deep.get("dividend_rate"):
+            estimated_annual_dividends += (h["quantity"] * deep["dividend_rate"])
+
+    estimated_dividend_yield = (estimated_annual_dividends / total_value * 100) if total_value > 0 else 0.0
+
     return {
-        "total_value": total_value,
-        "total_invested": total_invested,
-        "total_pnl": total_pnl,
-        "total_pnl_percent": total_pnl_percent,
-        "holdings_count": len(portfolio)
+        "total_value": round(total_value, 2),
+        "total_invested": round(total_invested, 2),
+        "total_pnl": round(total_pnl, 2),
+        "total_pnl_percent": round(total_pnl_percent, 2),
+        "holdings_count": len(portfolio),
+        "top_gainer": top_gainer,
+        "top_loser": top_loser,
+        "market_allocation": {k: round(v, 2) for k, v in market_allocation.items()},
+        "estimated_annual_dividends": round(estimated_annual_dividends, 2),
+        "estimated_dividend_yield": round(estimated_dividend_yield, 2)
     }
+
 
 @router.post("/holdings")
 async def add_holding(holding_data: HoldingCreate, db: AsyncSession = Depends(get_db)):

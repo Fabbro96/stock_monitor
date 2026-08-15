@@ -5,24 +5,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Portafoglio - Stock Monitor</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
     <style>
         .inline-input {
-            background-color: #0c0c14;
+            background-color: rgba(13, 15, 26, 0.9);
             border: 1px solid var(--border-color);
             color: var(--text-primary);
-            border-radius: 4px;
+            border-radius: 6px;
             padding: 6px 8px;
             font-size: 0.9rem;
             width: 100%;
             text-align: right;
             transition: var(--transition);
+            font-family: var(--font-mono);
+            font-weight: 600;
         }
 
         .inline-input:focus {
             outline: none;
             border-color: var(--primary-color);
-            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
-            background-color: #161622;
+            box-shadow: 0 0 0 2px var(--primary-glow);
+            background-color: var(--surface-color);
         }
 
         .row-modified {
@@ -80,7 +83,8 @@
             </div>
             <nav class="nav-links">
                 <a href="/static/index.html" class="nav-link">🏠 Dashboard</a>
-                <a href="/static/portfolio.html" class="nav-link">💼 Portafoglio</a>
+                <a href="/static/watchlist.html" class="nav-link">⭐ Watchlist</a>
+                <a href="/static/portfolio.html" class="nav-link active">💼 Portafoglio</a>
                 <a href="/static/advice.html" class="nav-link">🧠 Consigli</a>
                 <a href="/static/settings.html" class="nav-link">⚙️ Impostazioni</a>
             </nav>
@@ -91,9 +95,9 @@
             <header class="topbar">
                 <div class="flex items-center gap-4">
                     <button class="mobile-toggle">☰</button>
-                    <h1 class="page-title">Portafoglio</h1>
+                    <h1 class="page-title">💼 Gestione Portafoglio</h1>
                 </div>
-                <div class="flex gap-2 items-center">
+                <div class="flex gap-2 items-center flex-wrap">
                     <button class="btn btn-ghost" id="btnExport" title="Esporta portafoglio in CSV">📥 Esporta CSV</button>
                     <button class="btn btn-ghost" id="btnImport" title="Importa file CSV">📤 Importa CSV</button>
                     <button class="btn btn-primary" id="btnAddHolding">➕ Aggiungi Holding</button>
@@ -119,41 +123,47 @@
                 <!-- Summary Bar -->
                 <div class="card mb-4 flex justify-between items-center flex-wrap gap-4">
                     <div>
-                        <div class="text-muted text-sm flex items-center gap-1">
+                        <div class="text-muted text-xs uppercase font-bold tracking-wider flex items-center gap-1">
                             <span>Valore Attuale</span>
                             <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Valore di mercato odierno di tutte le azioni possedute.</span></span>
                         </div>
-                        <div class="text-xl font-bold" id="totalValue">-- €</div>
+                        <div class="text-2xl font-bold font-mono text-primary mt-1" id="totalValue">-- €</div>
                     </div>
                     <div>
-                        <div class="text-muted text-sm flex items-center gap-1">
+                        <div class="text-muted text-xs uppercase font-bold tracking-wider flex items-center gap-1">
                             <span>Capitale Investito</span>
-                            <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Somma totale del denaro speso all'acquisto delle posizioni.</span></span>
+                            <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Somma totale spesa all'acquisto delle posizioni.</span></span>
                         </div>
-                        <div class="text-xl font-bold" id="totalInvested">-- €</div>
+                        <div class="text-2xl font-bold font-mono text-secondary mt-1" id="totalInvested">-- €</div>
                     </div>
                     <div>
-                        <div class="text-muted text-sm flex items-center gap-1">
+                        <div class="text-muted text-xs uppercase font-bold tracking-wider flex items-center gap-1">
                             <span>P&L Totale</span>
-                            <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Guadagno o perdita complessivo (Valore Attuale - Capitale Investito).</span></span>
+                            <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Guadagno o perdita complessivo rispetto al prezzo medio di carico.</span></span>
                         </div>
-                        <div class="text-xl font-bold" id="totalPnL">--</div>
+                        <div class="text-2xl font-bold font-mono mt-1" id="totalPnL">--</div>
                     </div>
                     <div>
-                        <div class="text-muted text-sm flex items-center gap-1">
-                            <span>Titoli in Portafoglio</span>
-                            <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Numero di diverse società o ETF presenti nel tuo portafoglio.</span></span>
+                        <div class="text-muted text-xs uppercase font-bold tracking-wider flex items-center gap-1">
+                            <span>Dividendi Stimati</span>
+                            <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Flusso cedolare annuo stimato lordo generato dalle posizioni in portafoglio.</span></span>
                         </div>
-                        <div class="text-xl font-bold" id="totalCount">--</div>
+                        <div class="text-2xl font-bold font-mono text-profit mt-1" id="totalDividends">-- €/anno</div>
+                    </div>
+                    <div>
+                        <div class="text-muted text-xs uppercase font-bold tracking-wider flex items-center gap-1">
+                            <span>Posizioni Attive</span>
+                        </div>
+                        <div class="text-2xl font-bold font-mono text-primary mt-1" id="totalCount">--</div>
                     </div>
                 </div>
 
-                <div class="grid gap-4" style="display: grid; grid-template-columns: 1fr 300px;">
+                <div class="grid gap-4" style="display: grid; grid-template-columns: 1fr 320px;">
                     <!-- Holdings Table -->
                     <div class="card" style="grid-column: 1;">
-                        <div class="flex justify-between items-center mb-3">
-                            <div class="text-sm text-secondary">
-                                💡 <em>Puoi modificare <strong>Quantità</strong> e <strong>Prezzo Acquisto</strong> direttamente nelle caselle qui sotto e poi cliccare "Salva Modifiche".</em>
+                        <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
+                            <div class="text-xs text-secondary">
+                                💡 <em>Modifica <strong>Quantità</strong> e <strong>Prezzo Acquisto</strong> direttamente nelle caselle e clicca <strong>"Salva Modifiche"</strong>. Clicca sui ticker per il deep-dive.</em>
                             </div>
                         </div>
                         <div class="table-container">
@@ -162,66 +172,35 @@
                                     <tr>
                                         <th>Ticker</th>
                                         <th>Nome Titolo</th>
-                                        <th class="text-right" style="width: 120px;">
-                                            <span class="has-tooltip tooltip-bottom justify-end" title="Numero di azioni o quote in tuo possesso">
-                                                <span>Quantità</span>
-                                                <i class="info-badge">i</i>
-                                                <span class="tooltip-box">Numero di azioni/quote in tuo possesso</span>
-                                            </span>
-                                        </th>
-                                        <th class="text-right" style="width: 160px;">
-                                            <span class="has-tooltip tooltip-bottom justify-end" title="Prezzo medio unitario pagato al momento dell'acquisto (€)">
-                                                <span>Prezzo di Acquisto</span>
-                                                <i class="info-badge">i</i>
-                                                <span class="tooltip-box">Prezzo medio unitario pagato al momento dell'acquisto (€)</span>
-                                            </span>
-                                        </th>
-                                        <th class="text-right">
-                                            <span class="has-tooltip tooltip-bottom justify-end" title="Quotazione di mercato in tempo reale (€)">
-                                                <span>Prezzo Attuale</span>
-                                                <i class="info-badge">i</i>
-                                                <span class="tooltip-box">Quotazione di mercato in tempo reale (€)</span>
-                                            </span>
-                                        </th>
-                                        <th class="text-right">
-                                            <span class="has-tooltip tooltip-bottom justify-end" title="Quantità × Prezzo Attuale (€)">
-                                                <span>Controvalore</span>
-                                                <i class="info-badge">i</i>
-                                                <span class="tooltip-box">Quantità × Prezzo Attuale (€)</span>
-                                            </span>
-                                        </th>
-                                        <th class="text-right">
-                                            <span class="has-tooltip tooltip-bottom justify-end" title="Guadagno o perdita monetaria: (Prezzo Attuale - Prezzo Acquisto) × Quantità">
-                                                <span>P&L Netto (€)</span>
-                                                <i class="info-badge">i</i>
-                                                <span class="tooltip-box">Guadagno o perdita monetaria: (Prezzo Attuale - Prezzo Acquisto) × Quantità</span>
-                                            </span>
-                                        </th>
-                                        <th class="text-right">
-                                            <span class="has-tooltip tooltip-bottom justify-end" title="Rendimento percentuale sul capitale investito">
-                                                <span>P&L %</span>
-                                                <i class="info-badge">i</i>
-                                                <span class="tooltip-box">Rendimento percentuale sul capitale investito</span>
-                                            </span>
-                                        </th>
-                                        <th class="text-center" style="width: 80px;">Azioni</th>
+                                        <th class="text-right" style="width: 110px;">Quantità</th>
+                                        <th class="text-right" style="width: 130px;">Prezzo Carico</th>
+                                        <th class="text-right">Prezzo Live</th>
+                                        <th class="text-right">Controvalore</th>
+                                        <th class="text-right">P&L Netto (€)</th>
+                                        <th class="text-right">P&L %</th>
+                                        <th class="text-center" style="width: 70px;">Azioni</th>
                                     </tr>
-
                                 </thead>
                                 <tbody id="portfolioTableBody">
-                                    <tr><td colspan="9" class="text-center text-muted py-4">Caricamento portafoglio...</td></tr>
+                                    <tr><td colspan="9" class="text-center text-muted py-6">Caricamento portafoglio...</td></tr>
                                 </tbody>
                             </table>
                         </div>
                     </div>
 
-                    <!-- Allocation Chart -->
+                    <!-- Allocation Card -->
                     <div class="card" style="grid-column: 2; height: fit-content;">
-                        <h3 class="card-title mb-4">Allocazione Portafoglio</h3>
-                        <div class="flex justify-center mb-4">
-                            <canvas id="allocationChart" width="200" height="200"></canvas>
+                        <div class="flex justify-between items-center mb-3">
+                            <h3 class="card-title" style="margin:0; font-size: 1rem;">Allocazione</h3>
+                            <div class="timeframe-group" id="allocTypeGroup">
+                                <button class="timeframe-btn active" data-type="stock">Titoli</button>
+                                <button class="timeframe-btn" data-type="market">Mercati</button>
+                            </div>
                         </div>
-                        <div id="allocationLegend" class="flex flex-col gap-2 text-sm"></div>
+                        <div class="flex justify-center mb-4">
+                            <canvas id="allocationChart" width="190" height="190"></canvas>
+                        </div>
+                        <div id="allocationLegend" class="flex flex-col gap-2 text-xs"></div>
                     </div>
                 </div>
             </div>
@@ -239,16 +218,18 @@
                 <input type="hidden" id="holdingId">
                 <div class="form-group relative">
                     <label for="tickerInput">Ticker o Simbolo Azione</label>
-                    <input type="text" id="tickerInput" required placeholder="Es. G.MI, LDO.MI, ISP.MI, AAPL..." autocomplete="off">
+                    <input type="text" id="tickerInput" required placeholder="Es. G.MI, LDO.MI, ISP.MI, AAPL, NVDA..." autocomplete="off">
                     <div id="autocompleteResults" style="position:absolute;top:100%;left:0;right:0;background:var(--surface-color);border:1px solid var(--border-color);border-radius:6px;max-height:200px;overflow-y:auto;z-index:100;display:none;box-shadow:var(--shadow-md);"></div>
                 </div>
-                <div class="form-group">
-                    <label for="qtyInput">Quantità di Azioni</label>
-                    <input type="number" id="qtyInput" required step="any" min="0.0001" placeholder="Es. 100">
-                </div>
-                <div class="form-group">
-                    <label for="priceInput">Prezzo di Acquisto Unitario (€ o $)</label>
-                    <input type="number" id="priceInput" required step="any" min="0.0001" placeholder="Es. 24.50">
+                <div class="grid gap-3" style="display:grid; grid-template-columns: 1fr 1fr;">
+                    <div class="form-group">
+                        <label for="qtyInput">Quantità di Azioni</label>
+                        <input type="number" id="qtyInput" required step="any" min="0.0001" placeholder="Es. 100">
+                    </div>
+                    <div class="form-group">
+                        <label for="priceInput">Prezzo Acquisto Unitario (€ o $)</label>
+                        <input type="number" id="priceInput" required step="any" min="0.0001" placeholder="Es. 24.50">
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -256,7 +237,7 @@
                     <input type="date" id="dateInput">
                 </div>
                 <div class="form-group">
-                    <label for="notesInput">Note (opzionale)</label>
+                    <label for="notesInput">Note Operative (opzionale)</label>
                     <input type="text" id="notesInput" placeholder="Es. Primo ingresso, dividendo reinvestito...">
                 </div>
                 <div class="flex justify-end gap-2 mt-4">
@@ -296,7 +277,7 @@
             </div>
             <div class="form-group">
                 <p class="text-sm text-secondary mb-3">
-                    Carica un file CSV con le tue azioni. Le colonne riconosciute automaticamente sono:
+                    Carica un file CSV con le tue azioni. Colonne riconosciute automaticamente:
                     <code>ticker</code>, <code>quantity</code>, <code>avg_purchase_price</code>, <code>notes</code>.
                 </p>
                 <label for="csvFileInput">Seleziona file CSV</label>
