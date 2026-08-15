@@ -25,44 +25,70 @@ const renderAdviceCard = (advice) => {
     actionText = '🛡️ PRUDENZA';
   }
 
-  // Stocks analysis table
+  // Stocks analysis schematic list
   const stocks = Array.isArray(advice.stocks_analysis) ? advice.stocks_analysis : [];
   let stocksHtml = '';
   if (stocks.length > 0) {
     stocksHtml = `
       <div class="mt-4 pt-4 border-t border-border-color">
-        <h4 class="text-sm font-bold mb-3 text-primary flex items-center gap-2">
-          <span>📊 Focus & Raccomandazioni sui Titoli ${flag}</span>
-        </h4>
+        <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
+          <h4 class="text-sm font-bold text-primary flex items-center gap-2" style="margin: 0;">
+            <span>📋 Consigli Strategici Prioritizzati (${stocks.length}) ${flag}</span>
+          </h4>
+          <span class="text-xs text-muted">Ordinati per rilevanza & priorità operativa</span>
+        </div>
         <div class="table-container border border-border-color rounded">
           <table>
             <thead>
               <tr>
-                <th style="width: 180px;">Ticker & Titolo</th>
-                <th class="text-center" style="width: 120px;">Azione</th>
-                <th class="text-right" style="width: 140px;">Target Price</th>
-                <th>Razionale & Note Operative</th>
+                <th style="width: 170px;">Ticker & Titolo</th>
+                <th class="text-center" style="width: 110px;">Azione</th>
+                <th class="text-center" style="width: 110px;">Priorità</th>
+                <th class="text-right" style="width: 120px;">Target</th>
+                <th>Motivo Sintetico & Catalizzatore</th>
+                <th class="text-center" style="width: 80px;">Dettagli</th>
               </tr>
             </thead>
             <tbody>
               ${stocks.map(s => {
                 const sAct = (s.action || 'HOLD').toUpperCase();
-                const sBadge = sAct === 'BUY' ? 'badge-buy' : (sAct === 'SELL' ? 'badge-sell' : 'badge-hold');
-                const sLabel = sAct === 'BUY' ? '🟢 BUY' : (sAct === 'SELL' ? '🔴 SELL' : '🟡 HOLD');
+                const sBadge = (sAct.includes('BUY') || sAct.includes('ACCUMULO')) ? 'badge-buy' : ((sAct.includes('SELL') || sAct.includes('PROFITTO')) ? 'badge-sell' : 'badge-hold');
+                const sLabel = (sAct.includes('BUY') || sAct.includes('ACCUMULO')) ? '🟢 COMPRA' : ((sAct.includes('SELL') || sAct.includes('PROFITTO')) ? '🔴 VENDI' : '🟡 TIENI');
+                
+                const prio = (s.priority || 'MEDIA').toUpperCase();
+                let prioBadge = 'prio-badge-medium';
+                let prioLabel = '⚡ Media';
+                if (prio.includes('ALTA') || prio.includes('HIGH')) {
+                  prioBadge = 'prio-badge-high';
+                  prioLabel = '🚨 Alta';
+                } else if (prio.includes('OPPORTUN')) {
+                  prioBadge = 'prio-badge-opportunity';
+                  prioLabel = '💡 Opportunità';
+                } else if (prio.includes('RISCH') || prio.includes('RISK')) {
+                  prioBadge = 'prio-badge-risk';
+                  prioLabel = '🛡️ Rischio';
+                }
+
                 return `
                   <tr>
                     <td>
                       <a href="#" class="stock-ticker-link font-bold font-mono text-sm" data-stock="${s.ticker}">${s.ticker}</a>
-                      <div class="text-xs text-muted">${s.name || ''}</div>
+                      <div class="text-xs text-muted truncate" style="max-width: 150px;">${s.name || ''}</div>
                     </td>
                     <td class="text-center">
-                      <span class="badge ${sBadge}">${sLabel}</span>
+                      <span class="badge ${sBadge} text-xs font-semibold">${sLabel}</span>
+                    </td>
+                    <td class="text-center">
+                      <span class="badge ${prioBadge} text-xs font-semibold">${prioLabel}</span>
                     </td>
                     <td class="text-right font-mono font-bold text-primary">
                       ${s.target_price ? formatCurrency(s.target_price) : '--'}
                     </td>
                     <td class="text-sm text-secondary leading-relaxed">
                       ${s.note || s.reasoning || '--'}
+                    </td>
+                    <td class="text-center">
+                      <button type="button" class="btn btn-ghost btn-xs py-1 px-2 text-xs" onclick="window.openStockModal('${s.ticker}')" title="Apri Scheda Tecnica">🔍</button>
                     </td>
                   </tr>
                 `;
@@ -329,6 +355,36 @@ const initAdvice = () => {
     loadAdvice(currentPage, true);
   });
 
+  const toDateInputValue = (d) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const toDisplayDate = (dateStr) => {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    return dateStr;
+  };
+
+  const dayButtons = {
+    today: document.getElementById('btnFilterToday'),
+    yesterday: document.getElementById('btnFilterYesterday'),
+    pick: document.getElementById('btnFilterPickDay'),
+  };
+
+  const setDayButtonState = (activeType, customLabel = null) => {
+    Object.values(dayButtons).forEach(btn => btn?.classList.remove('active'));
+    if (activeType && dayButtons[activeType]) {
+      dayButtons[activeType].classList.add('active');
+    }
+    if (dayButtons.pick) {
+      dayButtons.pick.innerHTML = customLabel ? `📅 ${customLabel}` : 'Scegli giorno 📅';
+    }
+  };
+
   let debounceTimer;
   const applyFilters = () => {
     currentPage = 1;
@@ -339,7 +395,66 @@ const initAdvice = () => {
     loadAdvice(1);
   };
 
-  document.getElementById('filterDate').addEventListener('change', applyFilters);
+  // Date Filter: Oggi
+  dayButtons.today?.addEventListener('click', () => {
+    const today = new Date();
+    const dateStr = toDateInputValue(today);
+    document.getElementById('filterDate').value = dateStr;
+    setDayButtonState('today');
+    applyFilters();
+  });
+
+  // Date Filter: Ieri
+  dayButtons.yesterday?.addEventListener('click', () => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const dateStr = toDateInputValue(yesterday);
+    document.getElementById('filterDate').value = dateStr;
+    setDayButtonState('yesterday');
+    applyFilters();
+  });
+
+  // Date Filter: Scegli giorno modal
+  const datePickerModal = document.getElementById('datePickerModal');
+  const customDatePickerInput = document.getElementById('customDatePickerInput');
+
+  const openDatePicker = () => {
+    const curVal = document.getElementById('filterDate').value || toDateInputValue(new Date());
+    if (customDatePickerInput) customDatePickerInput.value = curVal;
+    datePickerModal?.classList.add('active');
+  };
+
+  const closeDatePicker = () => {
+    datePickerModal?.classList.remove('active');
+  };
+
+  dayButtons.pick?.addEventListener('click', openDatePicker);
+  document.getElementById('closeDatePickerModal')?.addEventListener('click', closeDatePicker);
+  document.getElementById('cancelDatePickerModal')?.addEventListener('click', closeDatePicker);
+
+  document.getElementById('applyDatePickerModal')?.addEventListener('click', () => {
+    const selectedDate = customDatePickerInput?.value;
+    if (!selectedDate) {
+      showToast('Seleziona una data valida', 'error');
+      return;
+    }
+    document.getElementById('filterDate').value = selectedDate;
+    setDayButtonState('pick', toDisplayDate(selectedDate));
+    closeDatePicker();
+    applyFilters();
+  });
+
+  // Close modal on escape or background click
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && datePickerModal?.classList.contains('active')) {
+      closeDatePicker();
+    }
+  });
+
+  datePickerModal?.addEventListener('click', (e) => {
+    if (e.target === datePickerModal) closeDatePicker();
+  });
+
   document.getElementById('filterMarket').addEventListener('change', applyFilters);
   document.getElementById('filterAction').addEventListener('change', applyFilters);
   document.getElementById('filterSearch').addEventListener('input', () => {
@@ -349,6 +464,7 @@ const initAdvice = () => {
 
   document.getElementById('btnResetFilters').addEventListener('click', () => {
     document.getElementById('filterDate').value = '';
+    setDayButtonState(null);
     document.getElementById('filterMarket').value = '';
     document.getElementById('filterAction').value = '';
     document.getElementById('filterSearch').value = '';

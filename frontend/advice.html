@@ -103,8 +103,13 @@
                     </div>
                     <div class="flex gap-4 items-end flex-wrap">
                         <div class="form-group mb-0">
-                            <label>📅 Filtra per Giorno</label>
-                            <input type="date" id="filterDate" style="width: 170px;">
+                            <label class="block text-xs font-semibold text-secondary mb-1">📅 Filtra per Giorno</label>
+                            <div class="flex items-center gap-1 bg-[rgba(255,255,255,0.04)] p-1 rounded border border-border-color">
+                                <button type="button" class="btn btn-xs btn-ghost filter-day-btn" id="btnFilterToday" data-day="today">Oggi</button>
+                                <button type="button" class="btn btn-xs btn-ghost filter-day-btn" id="btnFilterYesterday" data-day="yesterday">Ieri</button>
+                                <button type="button" class="btn btn-xs btn-ghost filter-day-btn" id="btnFilterPickDay" data-day="custom">Scegli giorno 📅</button>
+                            </div>
+                            <input type="hidden" id="filterDate" value="">
                         </div>
                         <div class="form-group mb-0">
                             <label>🏛️ Mercato</label>
@@ -140,7 +145,25 @@
         </main>
     </div>
 
-    <script type="module" src="/static/js/app.js?v=2.0.1"></script>
-    <script type="module" src="/static/js/advice.js?v=2.0.1"></script>
+    <!-- Date Picker Modal for "Scegli giorno" -->
+    <div class="modal" id="datePickerModal" role="dialog" aria-modal="true" aria-labelledby="datePickerTitle">
+        <div class="modal-content" style="max-width: 380px;">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="modal-title text-base font-bold" id="datePickerTitle">📅 Scegli Giorno</h3>
+                <button type="button" class="close-btn" id="closeDatePickerModal" aria-label="Chiudi modale">&times;</button>
+            </div>
+            <div class="form-group mb-4">
+                <label for="customDatePickerInput" class="text-xs font-semibold text-secondary mb-1 block">Seleziona la data da consultare:</label>
+                <input type="date" id="customDatePickerInput" class="w-full" style="padding: 10px; font-size: 1rem;">
+            </div>
+            <div class="flex justify-end gap-2">
+                <button type="button" class="btn btn-ghost" id="cancelDatePickerModal">Annulla</button>
+                <button type="button" class="btn btn-primary" id="applyDatePickerModal">Applica Filtro Data</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="/static/js/app.js?v=2.0.2"></script>
+    <script type="module" src="/static/js/advice.js?v=2.0.2"></script>
 </body>
 </html>
