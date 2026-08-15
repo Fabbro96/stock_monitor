@@ -4,75 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Portafoglio - Stock Monitor</title>
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=2.0.1">
     <script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
-    <style>
-        .inline-input {
-            background-color: rgba(13, 15, 26, 0.9);
-            border: 1px solid var(--border-color);
-            color: var(--text-primary);
-            border-radius: 6px;
-            padding: 6px 8px;
-            font-size: 0.9rem;
-            width: 100%;
-            text-align: right;
-            transition: var(--transition);
-            font-family: var(--font-mono);
-            font-weight: 600;
-        }
-
-        .inline-input:focus {
-            outline: none;
-            border-color: var(--primary-color);
-            box-shadow: 0 0 0 2px var(--primary-glow);
-            background-color: var(--surface-color);
-        }
-
-        .row-modified {
-            background-color: rgba(245, 158, 11, 0.08) !important;
-            border-left: 3px solid var(--warning-color);
-        }
-
-        .save-bar {
-            display: none;
-            align-items: center;
-            justify-content: space-between;
-            background: linear-gradient(90deg, rgba(245, 158, 11, 0.15), rgba(59, 130, 246, 0.15));
-            border: 1px solid var(--warning-color);
-            border-radius: var(--radius-card);
-            padding: 12px 20px;
-            margin-bottom: 20px;
-            animation: slideDown 0.3s ease-out;
-        }
-
-        @keyframes slideDown {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .changes-list {
-            max-height: 240px;
-            overflow-y: auto;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            background-color: rgba(0, 0, 0, 0.2);
-            padding: 12px;
-            margin-bottom: 16px;
-        }
-
-        .change-item {
-            padding: 8px;
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 0.88rem;
-        }
-
-        .change-item:last-child {
-            border-bottom: none;
-        }
-    </style>
 </head>
 <body>
     <div class="app-container">
@@ -101,6 +34,9 @@
                     <button class="btn btn-ghost" id="btnExport" title="Esporta portafoglio in CSV">📥 Esporta CSV</button>
                     <button class="btn btn-ghost" id="btnImport" title="Importa file CSV">📤 Importa CSV</button>
                     <button class="btn btn-primary" id="btnAddHolding">➕ Aggiungi Holding</button>
+                    <button class="theme-toggle-btn" id="btnThemeToggle" onclick="window.toggleTheme()" title="Cambia tema" aria-label="Cambia tema">
+                        <span>🌙</span>
+                    </button>
                 </div>
             </header>
 
@@ -139,14 +75,21 @@
                     <div>
                         <div class="text-muted text-xs uppercase font-bold tracking-wider flex items-center gap-1">
                             <span>P&L Totale</span>
-                            <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Guadagno o perdita complessivo rispetto al prezzo medio di carico.</span></span>
+                            <span class="has-tooltip"><i class="info-badge" tabindex="0">i</i><span class="tooltip-box">Guadagno o perdita non realizzato rispetto al prezzo medio di carico.</span></span>
                         </div>
                         <div class="text-2xl font-bold font-mono mt-1" id="totalPnL">--</div>
                     </div>
                     <div>
                         <div class="text-muted text-xs uppercase font-bold tracking-wider flex items-center gap-1">
+                            <span>P&L Realizzato</span>
+                            <span class="has-tooltip"><i class="info-badge" tabindex="0">i</i><span class="tooltip-box">Profitto o perdita netto incassato da vendite concluse e dividendi (al netto delle commissioni).</span></span>
+                        </div>
+                        <div class="text-2xl font-bold font-mono mt-1" id="totalRealizedPnL">-- €</div>
+                    </div>
+                    <div>
+                        <div class="text-muted text-xs uppercase font-bold tracking-wider flex items-center gap-1">
                             <span>Dividendi Stimati</span>
-                            <span class="has-tooltip"><i class="info-badge">i</i><span class="tooltip-box">Flusso cedolare annuo stimato lordo generato dalle posizioni in portafoglio.</span></span>
+                            <span class="has-tooltip"><i class="info-badge" tabindex="0">i</i><span class="tooltip-box">Flusso cedolare annuo stimato lordo generato dalle posizioni in portafoglio.</span></span>
                         </div>
                         <div class="text-2xl font-bold font-mono text-profit mt-1" id="totalDividends">-- €/anno</div>
                     </div>
@@ -158,9 +101,9 @@
                     </div>
                 </div>
 
-                <div class="grid gap-4" style="display: grid; grid-template-columns: 1fr 320px;">
+                <div class="portfolio-main-grid mb-4">
                     <!-- Holdings Table -->
-                    <div class="card" style="grid-column: 1;">
+                    <div class="card">
                         <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
                             <div class="text-xs text-secondary">
                                 💡 <em>Modifica <strong>Quantità</strong> e <strong>Prezzo Acquisto</strong> direttamente nelle caselle e clicca <strong>"Salva Modifiche"</strong>. Clicca sui ticker per il deep-dive.</em>
@@ -189,7 +132,7 @@
                     </div>
 
                     <!-- Allocation Card -->
-                    <div class="card" style="grid-column: 2; height: fit-content;">
+                    <div class="card" style="height: fit-content;">
                         <div class="flex justify-between items-center mb-3">
                             <h3 class="card-title" style="margin:0; font-size: 1rem;">Allocazione</h3>
                             <div class="timeframe-group" id="allocTypeGroup">
@@ -206,24 +149,32 @@
 
                 <!-- ⚖️ Smart Rebalancer -->
                 <div class="card mt-4 fade-in-up" id="rebalancerCard">
-                    <div class="card-header">
+                    <div class="card-header flex-wrap gap-2">
                         <div>
                             <h2 class="card-title">⚖️ Smart Portfolio Rebalancer</h2>
                             <p class="text-xs text-muted mt-1">Definisci le allocazioni target (es. 40% US Tech, 30% IT Dividend, 30% Liquidità) e ottieni gli ordini di ribilanciamento suggeriti.</p>
                         </div>
-                        <div class="flex gap-2 items-center">
-                            <input type="number" id="rebalanceCashInput" min="0" step="100" placeholder="Liquidità extra (€)" style="width: 170px;">
+                        <div class="flex gap-2 items-center flex-wrap">
+                            <div class="modern-stepper" style="min-width: 170px;">
+                                <button type="button" class="stepper-btn dec" data-step="500" title="Diminuisci (−500€)">−</button>
+                                <input type="number" id="rebalanceCashInput" min="0" step="100" placeholder="Liquidità (€)">
+                                <button type="button" class="stepper-btn inc" data-step="500" title="Aumenta (+500€)">+</button>
+                            </div>
                             <button class="btn btn-primary btn-sm" id="btnRebalancePreview">Calcola Ordini ➔</button>
                         </div>
                     </div>
 
-                    <div class="grid gap-4" style="display: grid; grid-template-columns: 1fr 1.3fr;">
+                    <div class="rebalance-grid gap-4">
                         <!-- Target Allocations CRUD -->
                         <div>
                             <h4 class="text-sm font-bold mb-3 text-primary">🎯 Allocazioni Target</h4>
                             <div class="flex gap-2 mb-3 flex-wrap">
                                 <input type="text" id="targetName" placeholder="Nome (es. US Tech)" style="flex:1; min-width: 130px;">
-                                <input type="number" id="targetPct" placeholder="%" min="0" max="100" step="0.5" style="width: 76px;">
+                                <div class="modern-stepper" style="min-width: 90px; max-width: 110px;">
+                                    <button type="button" class="stepper-btn dec" data-step="5" title="Diminuisci (−5%)">−</button>
+                                    <input type="number" id="targetPct" placeholder="%" min="0" max="100" step="0.5">
+                                    <button type="button" class="stepper-btn inc" data-step="5" title="Aumenta (+5%)">+</button>
+                                </div>
                                 <select id="targetScopeType" style="width: 130px;">
                                     <option value="MARKET">Mercato</option>
                                     <option value="TICKERS">Ticker</option>
@@ -258,8 +209,113 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- 📖 Trade Ledger (Registro Transazioni & Storico Compravendite) -->
+                <div class="card mt-4 fade-in-up" id="tradeLedgerCard">
+                    <div class="card-header flex justify-between items-center flex-wrap gap-2 mb-3">
+                        <div>
+                            <h2 class="card-title">📖 Trade Ledger & Storico Transazioni</h2>
+                            <p class="text-xs text-muted mt-1">Traccia ogni acquisto, vendita e accredito dividendi calcolando automaticamente il P&L Realizzato e le commissioni.</p>
+                        </div>
+                        <div class="flex gap-2 items-center flex-wrap">
+                            <button class="btn btn-primary btn-sm" id="btnOpenTxModal">➕ Registra Transazione</button>
+                        </div>
+                    </div>
+
+                    <!-- Filter pills -->
+                    <div class="flex gap-2 mb-3 flex-wrap items-center">
+                        <span class="text-xs text-muted">Filtra per:</span>
+                        <button class="btn btn-ghost btn-sm active tx-filter-btn" data-type="ALL">Tutte</button>
+                        <button class="btn btn-ghost btn-sm tx-filter-btn" data-type="BUY">🟢 Acquisti (BUY)</button>
+                        <button class="btn btn-ghost btn-sm tx-filter-btn" data-type="SELL">🔴 Vendite (SELL)</button>
+                        <button class="btn btn-ghost btn-sm tx-filter-btn" data-type="DIVIDEND">💰 Dividendi</button>
+                    </div>
+
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Data</th>
+                                    <th>Tipo</th>
+                                    <th>Ticker</th>
+                                    <th>Nome Titolo</th>
+                                    <th class="text-right">Quantità</th>
+                                    <th class="text-right">Prezzo Eseguito</th>
+                                    <th class="text-right">Commissione</th>
+                                    <th class="text-right">P&L Realizzato</th>
+                                    <th>Note</th>
+                                    <th class="text-center" style="width: 50px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="transactionsTableBody">
+                                <tr><td colspan="10" class="text-center text-muted py-3">Caricamento registro transazioni...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </main>
+    </div>
+
+    <!-- Modal Registra Transazione (Trade Ledger) -->
+    <div class="modal-overlay" id="txModal" role="dialog" aria-modal="true" aria-labelledby="txModalTitle">
+        <div class="modal-content" style="max-width: 480px;">
+            <div class="modal-header">
+                <h2 class="modal-title" id="txModalTitle">Registra Transazione (Trade Ledger)</h2>
+                <button class="modal-close" id="closeTxModal" aria-label="Chiudi finestra">×</button>
+            </div>
+            <form id="txForm">
+                <div class="form-group mb-3">
+                    <label for="txTypeSelect">Tipo Operazione</label>
+                    <select id="txTypeSelect">
+                        <option value="BUY">🟢 Acquisto (BUY) - Incrementa o apre posizione</option>
+                        <option value="SELL">🔴 Vendita (SELL) - Decrementa e calcola P&L realizzato</option>
+                        <option value="DIVIDEND">💰 Accredito Dividendo (DIVIDEND)</option>
+                    </select>
+                </div>
+                <div class="form-group relative mb-3">
+                    <label for="txTickerInput">Ticker Simbolo</label>
+                    <input type="text" id="txTickerInput" required placeholder="Es. ENEL.MI, AAPL, MSFT..." autocomplete="off">
+                    <div id="txAutocompleteResults" class="autocomplete-dropdown" style="display:none;"></div>
+                </div>
+                <div class="modal-form-grid mb-3">
+                    <div class="form-group mb-0">
+                        <label for="txQtyInput" id="txQtyLabel">Quantità Quote</label>
+                        <div class="modern-stepper" style="max-width: 100%; width: 100%;">
+                            <button type="button" class="stepper-btn dec" data-step="1" title="Diminuisci" aria-label="Diminuisci">−</button>
+                            <input type="number" id="txQtyInput" required step="any" min="0" placeholder="Es. 50" aria-label="Quantità">
+                            <button type="button" class="stepper-btn inc" data-step="1" title="Aumenta" aria-label="Aumenta">+</button>
+                        </div>
+                    </div>
+                    <div class="form-group mb-0">
+                        <label for="txPriceInput" id="txPriceLabel">Prezzo Unitario</label>
+                        <div class="modern-stepper" style="max-width: 100%; width: 100%;">
+                            <button type="button" class="stepper-btn dec" data-step="0.5" title="Diminuisci" aria-label="Diminuisci">−</button>
+                            <input type="number" id="txPriceInput" required step="any" min="0" placeholder="Es. 18.50" aria-label="Prezzo">
+                            <button type="button" class="stepper-btn inc" data-step="0.5" title="Aumenta" aria-label="Aumenta">+</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-form-grid mb-3">
+                    <div class="form-group mb-0">
+                        <label for="txFeeInput">Commissione (€)</label>
+                        <input type="number" id="txFeeInput" step="any" min="0" value="0.00" placeholder="Es. 2.95">
+                    </div>
+                    <div class="form-group mb-0">
+                        <label for="txDateInput">Data Operazione</label>
+                        <input type="date" id="txDateInput">
+                    </div>
+                </div>
+                <div class="form-group mb-3">
+                    <label for="txNotesInput">Note Operazione</label>
+                    <input type="text" id="txNotesInput" placeholder="Es. Primo ingresso, target raggiunto...">
+                </div>
+                <div class="flex justify-end gap-2 mt-4">
+                    <button type="button" class="btn btn-ghost" id="cancelTxModal">Annulla</button>
+                    <button type="submit" class="btn btn-primary" id="btnSubmitTx">Registra Transazione</button>
+                </div>
+            </form>
+        </div>
     </div>
 
     <!-- Modal Add/Edit Single Holding -->
@@ -274,16 +330,24 @@
                 <div class="form-group relative">
                     <label for="tickerInput">Ticker o Simbolo Azione</label>
                     <input type="text" id="tickerInput" required placeholder="Es. G.MI, LDO.MI, ISP.MI, AAPL, NVDA..." autocomplete="off">
-                    <div id="autocompleteResults" style="position:absolute;top:100%;left:0;right:0;background:var(--surface-color);border:1px solid var(--border-color);border-radius:6px;max-height:200px;overflow-y:auto;z-index:100;display:none;box-shadow:var(--shadow-md);"></div>
+                    <div id="autocompleteResults" class="autocomplete-dropdown" style="display:none;"></div>
                 </div>
-                <div class="grid gap-3" style="display:grid; grid-template-columns: 1fr 1fr;">
-                    <div class="form-group">
+                <div class="modal-form-grid mb-3">
+                    <div class="form-group mb-0">
                         <label for="qtyInput">Quantità di Azioni</label>
-                        <input type="number" id="qtyInput" required step="any" min="0.0001" placeholder="Es. 100">
+                        <div class="modern-stepper" style="max-width: 100%; width: 100%;">
+                            <button type="button" class="stepper-btn dec" data-step="1" title="Diminuisci" aria-label="Diminuisci quantità">−</button>
+                            <input type="number" id="qtyInput" required step="any" min="0.0001" placeholder="Es. 100" aria-label="Quantità di azioni">
+                            <button type="button" class="stepper-btn inc" data-step="1" title="Aumenta" aria-label="Aumenta quantità">+</button>
+                        </div>
                     </div>
-                    <div class="form-group">
+                    <div class="form-group mb-0">
                         <label for="priceInput">Prezzo Acquisto Unitario (€ o $)</label>
-                        <input type="number" id="priceInput" required step="any" min="0.0001" placeholder="Es. 24.50">
+                        <div class="modern-stepper" style="max-width: 100%; width: 100%;">
+                            <button type="button" class="stepper-btn dec" data-step="0.5" title="Diminuisci" aria-label="Diminuisci prezzo di acquisto">−</button>
+                            <input type="number" id="priceInput" required step="any" min="0.0001" placeholder="Es. 24.50" aria-label="Prezzo di acquisto">
+                            <button type="button" class="stepper-btn inc" data-step="0.5" title="Aumenta" aria-label="Aumenta prezzo di acquisto">+</button>
+                        </div>
                     </div>
                 </div>
 
@@ -345,7 +409,7 @@
         </div>
     </div>
 
-    <script type="module" src="/static/js/app.js"></script>
-    <script type="module" src="/static/js/portfolio.js"></script>
+    <script type="module" src="/static/js/app.js?v=2.0.1"></script>
+    <script type="module" src="/static/js/portfolio.js?v=2.0.1"></script>
 </body>
 </html>

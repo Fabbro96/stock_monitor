@@ -83,6 +83,26 @@ class TelegramService:
         )
         await self.send_message(text)
 
+    async def send_stop_loss_alert(self, stock_name: str, ticker: str, pnl_pct: float, current_price: float, avg_price: float):
+        text = (
+            f"🛑 <b>ALLERTA STOP-LOSS</b> 🛑\n\n"
+            f"📉 <b>{html.escape(stock_name)}</b> (<code>{html.escape(ticker)}</code>)\n"
+            f"Perdita Posizione: <b>{pnl_pct:.2f}%</b>\n"
+            f"Prezzo Attuale: <b>{current_price:.2f}</b> (Carico: {avg_price:.2f})\n"
+            f"💡 <i>Suggerimento: Valuta se ridurre l'esposizione per contenere il rischio.</i>"
+        )
+        await self.send_message(text)
+
+    async def send_take_profit_alert(self, stock_name: str, ticker: str, pnl_pct: float, current_price: float, avg_price: float):
+        text = (
+            f"🎯 <b>ALLERTA TAKE-PROFIT</b> 🎯\n\n"
+            f"🚀 <b>{html.escape(stock_name)}</b> (<code>{html.escape(ticker)}</code>)\n"
+            f"Guadagno Posizione: <b>+{pnl_pct:.2f}%</b>\n"
+            f"Prezzo Attuale: <b>{current_price:.2f}</b> (Carico: {avg_price:.2f})\n"
+            f"💰 <i>Suggerimento: Valuta una presa di profitto parziale.</i>"
+        )
+        await self.send_message(text)
+
     async def send_test_message(self):
         await self.send_message("🤖 <b>Stock Monitor</b>: Messaggio di test completato con successo! ✅")
 
@@ -102,10 +122,13 @@ class InteractiveTelegramBot:
         self.application = None
 
     def _authorized(self, update) -> bool:
-        """Solo la chat configurata può usare il bot (multi-tenant safe)."""
+        """Solo la chat ID configurata nel .env può usare il bot."""
         try:
+            if not settings.TELEGRAM_CHAT_ID:
+                logger.warning("Telegram command received but TELEGRAM_CHAT_ID is not configured in .env.")
+                return False
             chat_id = str(update.effective_chat.id)
-            return not settings.TELEGRAM_CHAT_ID or chat_id == str(settings.TELEGRAM_CHAT_ID)
+            return chat_id == str(settings.TELEGRAM_CHAT_ID)
         except Exception:
             return False
 

@@ -323,20 +323,71 @@ const loadRiskMetrics = async () => {
   }
 };
 
+const clearSkeletons = () => {
+  const statTotal = document.getElementById('statTotalValue');
+  if (statTotal && statTotal.querySelector('.skeleton')) statTotal.textContent = '0,00 €';
+  
+  const dailyEl = document.getElementById('statDailyPnL');
+  if (dailyEl && dailyEl.querySelector('.skeleton')) dailyEl.textContent = '0,00 € (+0.00%)';
+  
+  const totalEl = document.getElementById('statTotalPnL');
+  if (totalEl && totalEl.querySelector('.skeleton')) totalEl.textContent = '0,00 € (+0.00%)';
+  
+  const divEl = document.getElementById('statDividends');
+  if (divEl && divEl.querySelector('.skeleton')) divEl.textContent = '0,00 €/anno';
+  
+  const tgEl = document.getElementById('statTopGainer');
+  if (tgEl && tgEl.querySelector('.skeleton')) tgEl.textContent = '--';
+
+  const riskRow = document.getElementById('riskMetricsRow');
+  if (riskRow && riskRow.querySelector('.skeleton')) {
+    riskRow.innerHTML = '<div class="text-muted text-xs py-2 text-center" style="grid-column: 1 / -1;">Metriche calcolate dopo l\'inserimento di posizioni nel portafoglio.</div>';
+  }
+
+  const recentAdv = document.getElementById('recentAdviceList');
+  if (recentAdv && recentAdv.textContent.includes('Caricamento')) {
+    recentAdv.innerHTML = '<div class="text-center text-muted py-4 text-xs">Nessuna analisi recente.</div>';
+  }
+
+  const heatmap = document.getElementById('marketHeatmap');
+  if (heatmap && (heatmap.querySelector('.skeleton') || heatmap.textContent.includes('Caricamento'))) {
+    renderHeatmap([]);
+  }
+
+  const tbody = document.getElementById('holdingsTableBody');
+  if (tbody && (tbody.querySelector('.skeleton') || tbody.textContent.includes('Caricamento'))) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="7" class="text-center text-muted py-6">
+          Nessun titolo nel portafoglio.
+          <div class="mt-2 flex justify-center gap-2">
+            <a href="/static/portfolio.html" class="btn btn-primary btn-sm">➕ Aggiungi Holding</a>
+            <button class="btn btn-ghost btn-sm" id="btnTableSeedDemoFallback">🚀 Prova Demo</button>
+          </div>
+        </td>
+      </tr>
+    `;
+    tbody.querySelector('#btnTableSeedDemoFallback')?.addEventListener('click', triggerSeedDemo);
+  }
+};
+
 const loadDashboardData = async (isSilentRefresh = false) => {
   try {
     if (!isSilentRefresh) {
       renderSkeletons();
     }
     
-    const [dashData, portfolio, heatmap, advice] = await Promise.all([
+    const [dashData, portfolioRes, heatmapRes, adviceRes] = await Promise.all([
       api.getDashboard().catch(() => ({})),
       api.getPortfolio().catch(() => []),
       api.getHeatmap().catch(() => []),
       api.getLatestAdvice().catch(() => [])
     ]);
 
-    const summary = dashData.portfolio_summary || {};
+    const summary = (dashData && dashData.portfolio_summary) ? dashData.portfolio_summary : {};
+    const portfolio = Array.isArray(portfolioRes) ? portfolioRes : [];
+    const heatmap = Array.isArray(heatmapRes) ? heatmapRes : [];
+    const advice = Array.isArray(adviceRes) ? adviceRes : [];
 
     // 1. Stat Cards
     const totalValEl = document.getElementById('statTotalValue');
@@ -369,15 +420,15 @@ const loadDashboardData = async (isSilentRefresh = false) => {
     const tgDescEl = document.getElementById('statTopGainerDesc');
     if (tgEl && summary.top_gainer) {
       tgEl.textContent = `${summary.top_gainer.ticker} (${formatPercent(summary.top_gainer.pnl_percent)})`;
-      tgDescEl.textContent = `P&L Netto: ${formatCurrency(summary.top_gainer.pnl_absolute)}`;
+      if (tgDescEl) tgDescEl.textContent = `P&L Netto: ${formatCurrency(summary.top_gainer.pnl_absolute)}`;
     } else if (tgEl) {
       tgEl.textContent = '--';
-      tgDescEl.textContent = 'Nessuna posizione in utile';
+      if (tgDescEl) tgDescEl.textContent = 'Nessuna posizione in utile';
     }
 
-    // 2. Chart
-    await loadPerformanceChart(currentChartDays);
-    loadRiskMetrics();
+    // 2. Chart & Risk
+    await loadPerformanceChart(currentChartDays).catch(err => console.debug('Chart error:', err));
+    loadRiskMetrics().catch(err => console.debug('Risk error:', err));
 
     // 3. Heatmap
     renderHeatmap(heatmap);
@@ -469,9 +520,14 @@ const loadDashboardData = async (isSilentRefresh = false) => {
       }
     }
 
-    updateMarketStatus(dashData.market_status);
+    if (dashData && dashData.market_status) {
+      updateMarketStatus(dashData.market_status);
+    } else {
+      updateMarketStatus();
+    }
 
   } catch (error) {
+    clearSkeletons();
     if (!isSilentRefresh) {
       showToast('Errore nel caricamento della dashboard', 'error');
     }
@@ -479,7 +535,7 @@ const loadDashboardData = async (isSilentRefresh = false) => {
   }
 };
 
-document.addEventListener('DOMContentLoaded', () => {
+const initDashboard = () => {
   initChart();
   loadDashboardData();
   
@@ -537,7 +593,7 @@ document.addEventListener('DOMContentLoaded', () => {
           try {
             const benchData = await api.getBenchmarks(currentChartDays);
             if (activeBenchmark === '^GSPC' || activeBenchmark === 'both') {
-              const spData = benchData.benchmarks?.['^GSPC'] || [];
+              const spData = benchData?.benchmarks?.['^GSPC'] || [];
               benchSeriesMap['^GSPC']?.applyOptions({ visible: true });
               benchSeriesMap['^GSPC']?.setData(spData.map(p => ({ time: p.date, value: p.value })));
             } else {
@@ -545,7 +601,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             if (activeBenchmark === 'FTSEMIB.MI' || activeBenchmark === 'both') {
-              const mibData = benchData.benchmarks?.['FTSEMIB.MI'] || [];
+              const mibData = benchData?.benchmarks?.['FTSEMIB.MI'] || [];
               benchSeriesMap['FTSEMIB.MI']?.applyOptions({ visible: true });
               benchSeriesMap['FTSEMIB.MI']?.setData(mibData.map(p => ({ time: p.date, value: p.value })));
             } else {
@@ -565,4 +621,10 @@ document.addEventListener('DOMContentLoaded', () => {
       loadDashboardData(true);
     }
   }, 60000);
-});
+};
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initDashboard);
+} else {
+  initDashboard();
+}

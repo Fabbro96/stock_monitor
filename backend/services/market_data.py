@@ -155,6 +155,129 @@ class MarketDataService:
         }
 
     @staticmethod
+    def get_stock_dividend_yield(ticker: str) -> float:
+        ticker_up = (ticker or '').strip().upper()
+        if ticker_up in _DEEP_DIVE_CACHE:
+            cached, _ = _DEEP_DIVE_CACHE[ticker_up]
+            if cached and cached.get("dividend_yield"):
+                return float(cached["dividend_yield"])
+        ref = KNOWN_STOCKS.get(ticker_up)
+        if ref and ref.get("div") is not None:
+            return float(ref["div"])
+        return 0.0
+
+    @staticmethod
+    async def get_fx_rate(from_curr: str = "USD", to_curr: str = "EUR") -> float:
+        """
+        Restituisce il tasso di cambio live per convertire from_curr in to_curr (es. USD -> EUR).
+        Usa la cache e la coppia EURUSD=X con fallback sicuro.
+        """
+        f = (from_curr or "EUR").strip().upper()
+        t = (to_curr or "EUR").strip().upper()
+        if f == t:
+            return 1.0
+
+        if f == "USD" and t == "EUR":
+            try:
+                price_data = await MarketDataService.fetch_current_price("EURUSD=X")
+                if price_data and price_data.get("close") and price_data["close"] > 0:
+                    eur_usd = float(price_data["close"])
+                    return 1.0 / eur_usd
+            except Exception:
+                pass
+            return 0.9259  # Tasso indicativo di fallback (~1.08 USD per 1 EUR)
+
+        if f == "EUR" and t == "USD":
+            try:
+                price_data = await MarketDataService.fetch_current_price("EURUSD=X")
+                if price_data and price_data.get("close") and price_data["close"] > 0:
+                    return float(price_data["close"])
+            except Exception:
+                pass
+            return 1.08
+
+        return 1.0
+
+    @staticmethod
+    async def resolve_stock_info(ticker: str) -> dict:
+        """
+        Risolve metadati di un titolo (nome, mercato, valuta, settore)
+        da KNOWN_STOCKS o Yahoo Finance in modo asincrono con fallback garantito.
+        """
+        t_clean = (ticker or "").strip().upper()
+        if not t_clean:
+            return {"name": "", "market": "US", "currency": "USD", "sector": "Other"}
+
+        if t_clean in KNOWN_STOCKS:
+            ref = KNOWN_STOCKS[t_clean]
+            mkt = ref.get("market") or ("IT" if t_clean.endswith(".MI") else "US")
+            return {
+                "name": ref.get("name", t_clean),
+                "market": mkt,
+                "currency": "EUR" if (mkt == "IT" or t_clean.endswith(".MI")) else "USD",
+                "sector": ref.get("sector", "Technology")
+            }
+
+        def _sync_resolve():
+            try:
+                stock = yf.Ticker(t_clean, session=_yf_session)
+                info = getattr(stock, 'fast_info', None)
+                name = None
+                currency = None
+                sector = None
+                if info:
+                    currency = getattr(info, 'currency', None)
+                try:
+                    full_info = stock.info
+                    name = full_info.get("shortName") or full_info.get("longName")
+                    currency = currency or full_info.get("currency")
+                    sector = full_info.get("sector")
+                except Exception:
+                    pass
+
+                mkt = "IT" if t_clean.endswith(".MI") else ("EU" if any(t_clean.endswith(s) for s in [".PA", ".DE", ".MC", ".AS"]) else "US")
+                curr = currency or ("EUR" if mkt in ["IT", "EU"] else "USD")
+                return {
+                    "name": name or t_clean,
+                    "market": mkt,
+                    "currency": curr,
+                    "sector": sector or "General"
+                }
+            except Exception as e:
+                logger.debug(f"Yahoo resolve info failed for {t_clean}: {e}")
+                mkt = "IT" if t_clean.endswith(".MI") else "US"
+                return {
+                    "name": t_clean,
+                    "market": mkt,
+                    "currency": "EUR" if mkt == "IT" else "USD",
+                    "sector": "General"
+                }
+
+        try:
+            return await asyncio.wait_for(asyncio.to_thread(_sync_resolve), timeout=2.5)
+        except Exception:
+            mkt = "IT" if t_clean.endswith(".MI") else "US"
+            return {
+                "name": t_clean,
+                "market": mkt,
+                "currency": "EUR" if mkt == "IT" else "USD",
+                "sector": "General"
+            }
+
+    @staticmethod
+    async def fetch_index_history(ticker: str, period: str = "1mo") -> list[dict]:
+        """
+        Scarica la serie storica di chiusura per un indice di benchmark (^GSPC, FTSEMIB.MI, ecc.)
+        """
+        tf_map = {
+            "7d": "1w", "30d": "1m", "1mo": "1m",
+            "90d": "6m", "3mo": "6m", "180d": "6m", "6mo": "6m",
+            "1y": "1y", "365d": "1y"
+        }
+        tf = tf_map.get(period.lower(), "1m")
+        return await MarketDataService.fetch_stock_candles(ticker, timeframe=tf)
+
+    @staticmethod
     async def fetch_current_price(ticker: str) -> dict:
         _evict_cache_if_needed(_PRICE_CACHE)
         now_ts = time.time()
@@ -206,10 +329,104 @@ class MarketDataService:
                 logger.debug(f"Yahoo fetch error for {ticker}: {e}, using fallback.")
                 return MarketDataService._generate_fallback_price(ticker)
 
-        result = await asyncio.to_thread(_sync_fetch)
+        try:
+            result = await asyncio.wait_for(asyncio.to_thread(_sync_fetch), timeout=3.0)
+        except Exception:
+            result = MarketDataService._generate_fallback_price(ticker)
+
         if result:
             _PRICE_CACHE[ticker] = (result, now_ts)
         return result
+
+    @staticmethod
+    async def fetch_batch_prices(tickers: list[str]) -> dict[str, dict]:
+        """
+        Scarica i prezzi per una lista di ticker in un'unica richiesta batch veloce,
+        popolando contemporaneamente la cache in memoria.
+        """
+        _evict_cache_if_needed(_PRICE_CACHE)
+        now_ts = time.time()
+        results = {}
+        missing_tickers = []
+
+        for t in tickers:
+            t_clean = (t or '').strip().upper()
+            if not t_clean:
+                continue
+            if t_clean in _PRICE_CACHE:
+                cached_data, cached_time = _PRICE_CACHE[t_clean]
+                if now_ts - cached_time < CACHE_TTL:
+                    results[t_clean] = cached_data
+                    continue
+            missing_tickers.append(t_clean)
+
+        if not missing_tickers:
+            return results
+
+        def _sync_batch():
+            batch_res = {}
+            try:
+                # Yahoo Finance download in a single batch request
+                df = yf.download(
+                    missing_tickers, 
+                    period="2d", 
+                    interval="1d", 
+                    progress=False, 
+                    group_by='ticker', 
+                    session=_yf_session,
+                    timeout=4.0
+                )
+            except Exception as e:
+                logger.debug(f"Yahoo batch download error: {e}")
+                df = None
+
+            for tk in missing_tickers:
+                price_data = None
+                if df is not None and not df.empty:
+                    try:
+                        sub_df = df[tk] if (len(missing_tickers) > 1 and tk in df.columns.levels[0]) else df
+                        if sub_df is not None and not sub_df.empty and 'Close' in sub_df:
+                            closes = sub_df['Close'].dropna()
+                            if len(closes) > 0:
+                                price = float(closes.iloc[-1])
+                                prev = float(closes.iloc[-2]) if len(closes) > 1 else price
+                                change_abs = price - prev
+                                change_pct = (change_abs / prev * 100) if prev else 0.0
+                                open_p = float(sub_df['Open'].dropna().iloc[-1]) if 'Open' in sub_df else price
+                                high_p = float(sub_df['High'].dropna().iloc[-1]) if 'High' in sub_df else price
+                                low_p = float(sub_df['Low'].dropna().iloc[-1]) if 'Low' in sub_df else price
+                                vol = int(sub_df['Volume'].dropna().iloc[-1]) if 'Volume' in sub_df else 0
+
+                                price_data = {
+                                    "open": open_p,
+                                    "high": high_p,
+                                    "low": low_p,
+                                    "close": price,
+                                    "volume": vol,
+                                    "previous_close": prev,
+                                    "change_abs": round(change_abs, 3),
+                                    "change_percent": round(change_pct, 2)
+                                }
+                    except Exception:
+                        pass
+
+                if not price_data:
+                    price_data = MarketDataService._generate_fallback_price(tk)
+
+                batch_res[tk] = price_data
+
+            return batch_res
+
+        try:
+            downloaded = await asyncio.wait_for(asyncio.to_thread(_sync_batch), timeout=4.5)
+        except Exception:
+            downloaded = {tk: MarketDataService._generate_fallback_price(tk) for tk in missing_tickers}
+
+        for tk, pdata in downloaded.items():
+            _PRICE_CACHE[tk] = (pdata, now_ts)
+            results[tk] = pdata
+
+        return results
 
     @staticmethod
     async def fetch_market_indices() -> list[dict]:
@@ -219,46 +436,26 @@ class MarketDataService:
         if cached_data and (now_ts - cached_time < CACHE_TTL):
             return cached_data
 
-        def _sync_fetch_all_indices():
-            results = []
-            for item in MarketDataService.GLOBAL_INDICES:
-                try:
-                    ticker = item["ticker"]
-                    price_data = MarketDataService._generate_fallback_price(ticker)
-                    try:
-                        t = yf.Ticker(ticker, session=_yf_session)
-                        hist = t.history(period="2d")
-                        if not hist.empty:
-                            latest = hist.iloc[-1]
-                            prev = hist.iloc[-2]['Close'] if len(hist) > 1 else latest['Open']
-                            price = float(latest["Close"])
-                            change_abs = price - prev
-                            change_pct = (change_abs / prev * 100) if prev else 0.0
-                            price_data = {
-                                "close": price,
-                                "change_abs": change_abs,
-                                "change_percent": change_pct
-                            }
-                    except Exception:
-                        pass
+        tickers = [item["ticker"] for item in MarketDataService.GLOBAL_INDICES]
+        prices_map = await MarketDataService.fetch_batch_prices(tickers)
 
-                    results.append({
-                        "ticker": ticker,
-                        "name": item["name"],
-                        "flag": item["flag"],
-                        "type": item["type"],
-                        "price": round(price_data["close"], 4 if "EURUSD" in ticker else 2),
-                        "change_abs": round(price_data["change_abs"], 4 if "EURUSD" in ticker else 2),
-                        "change_percent": round(price_data["change_percent"], 2)
-                    })
-                except Exception as e:
-                    logger.debug(f"Errore recupero indice {item['ticker']}: {e}")
-            return results
+        results = []
+        for item in MarketDataService.GLOBAL_INDICES:
+            tk = item["ticker"]
+            pdata = prices_map.get(tk) or MarketDataService._generate_fallback_price(tk)
+            results.append({
+                "ticker": tk,
+                "name": item["name"],
+                "flag": item["flag"],
+                "type": item["type"],
+                "price": round(pdata["close"], 4 if "EURUSD" in tk else 2),
+                "change_abs": round(pdata["change_abs"], 4 if "EURUSD" in tk else 2),
+                "change_percent": round(pdata["change_percent"], 2)
+            })
 
-        data = await asyncio.to_thread(_sync_fetch_all_indices)
-        if data:
-            _INDICES_CACHE = (data, now_ts)
-        return data or cached_data
+        if results:
+            _INDICES_CACHE = (results, now_ts)
+        return results
 
     @staticmethod
     async def fetch_stock_deep_dive(ticker: str) -> dict:

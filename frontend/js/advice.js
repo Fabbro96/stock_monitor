@@ -315,7 +315,7 @@ const runSingleStockAnalysis = async () => {
   }
 };
 
-document.addEventListener('DOMContentLoaded', () => {
+const initAdvice = () => {
   loadAdvice(1);
   checkMarketStatus();
 
@@ -369,4 +369,10 @@ document.addEventListener('DOMContentLoaded', () => {
       hideLoading('adviceContent');
     }
   });
-});
+};
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initAdvice);
+} else {
+  initAdvice();
+}

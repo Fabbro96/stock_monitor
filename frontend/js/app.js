@@ -132,9 +132,10 @@ export const updateThemeToggleButton = () => {
   if (!btn) return;
   const isLight = getTheme() === 'light';
   btn.innerHTML = isLight 
-    ? '<span>☀️ Catppuccin</span>' 
-    : '<span>🌙 Tokyo Night</span>';
-  btn.title = isLight ? 'Passa al tema scuro (Tokyo Night)' : 'Passa al tema chiaro (Catppuccin Latte)';
+    ? '<span>☀️</span>' 
+    : '<span>🌙</span>';
+  btn.title = isLight ? 'Passa al tema scuro' : 'Passa al tema chiaro';
+  btn.setAttribute('aria-label', btn.title);
 };
 
 export const setTheme = (theme) => {
@@ -155,19 +156,19 @@ const initTheme = () => {
   const saved = getTheme();
   document.documentElement.setAttribute('data-theme', saved);
 
-  // Inject Theme Toggle into Topbar
+  // Inject Theme Toggle into Topbar if not present in HTML
   const topbar = document.querySelector('.topbar');
   if (topbar && !document.getElementById('btnThemeToggle')) {
     const toggleContainer = document.createElement('div');
     toggleContainer.className = 'flex items-center gap-2';
     toggleContainer.innerHTML = `
-      <button class="theme-toggle-btn" id="btnThemeToggle" onclick="window.toggleTheme()">
-        <span>🌙 Tokyo Night</span>
+      <button class="theme-toggle-btn" id="btnThemeToggle" onclick="window.toggleTheme()" title="Cambia tema" aria-label="Cambia tema">
+        <span>${saved === 'light' ? '☀️' : '🌙'}</span>
       </button>
     `;
     topbar.appendChild(toggleContainer);
-    updateThemeToggleButton();
   }
+  updateThemeToggleButton();
 };
 
 // ==========================================
@@ -215,6 +216,93 @@ export const initTickerMarquee = async () => {
 };
 
 // ==========================================
+// Modern Number Steppers (+ / -)
+// ==========================================
+export const initSteppers = () => {
+  let activeTimer = null;
+  let activeInterval = null;
+
+  const performStep = (btn, isShift = false, isAlt = false) => {
+    const stepper = btn.closest('.modern-stepper');
+    if (!stepper) return;
+    const input = stepper.querySelector('input[type="number"], .inline-input, .stepper-input');
+    if (!input || input.disabled || input.readOnly) return;
+
+    let step = parseFloat(btn.dataset.step);
+    if (isNaN(step) || step <= 0) {
+      step = parseFloat(input.step);
+      if (isNaN(step) || step <= 0) {
+        step = input.classList.contains('input-price') ? 0.5 : 1;
+      }
+    }
+
+    if (isShift) step *= 10;
+    else if (isAlt) step = Math.max(step / 10, 0.01);
+
+    const isInc = btn.classList.contains('inc');
+    const currentVal = parseFloat(input.value) || 0;
+    let newVal = isInc ? currentVal + step : currentVal - step;
+
+    if (input.min !== '' && !isNaN(parseFloat(input.min))) {
+      newVal = Math.max(newVal, parseFloat(input.min));
+    }
+    if (input.max !== '' && !isNaN(parseFloat(input.max))) {
+      newVal = Math.min(newVal, parseFloat(input.max));
+    }
+
+    // Determine precision to prevent floating point noise (e.g. 21.500000000000004)
+    const stepDecimals = (step.toString().split('.')[1] || '').length;
+    const valDecimals = Math.max(stepDecimals, input.classList.contains('input-price') ? 2 : 0);
+    input.value = valDecimals > 0 ? parseFloat(newVal.toFixed(valDecimals)) : Math.round(newVal);
+
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
+  const stopRepeat = () => {
+    if (activeTimer) clearTimeout(activeTimer);
+    if (activeInterval) clearInterval(activeInterval);
+    activeTimer = null;
+    activeInterval = null;
+  };
+
+  document.addEventListener('mousedown', (e) => {
+    const btn = e.target.closest('.stepper-btn');
+    if (!btn || e.button !== 0) return;
+    e.preventDefault();
+
+    performStep(btn, e.shiftKey, e.altKey);
+
+    stopRepeat();
+    activeTimer = setTimeout(() => {
+      activeInterval = setInterval(() => {
+        performStep(btn, e.shiftKey, e.altKey);
+      }, 75);
+    }, 280);
+  });
+
+  document.addEventListener('mouseup', stopRepeat);
+  document.addEventListener('mouseleave', stopRepeat);
+  window.addEventListener('blur', stopRepeat);
+
+  document.addEventListener('touchstart', (e) => {
+    const btn = e.target.closest('.stepper-btn');
+    if (!btn) return;
+    performStep(btn);
+
+    stopRepeat();
+    activeTimer = setTimeout(() => {
+      activeInterval = setInterval(() => {
+        performStep(btn);
+      }, 75);
+    }, 280);
+  }, { passive: true });
+
+  document.addEventListener('touchend', stopRepeat, { passive: true });
+  document.addEventListener('touchcancel', stopRepeat, { passive: true });
+};
+
+// ==========================================
 // Global Stock Deep Dive Modal
 // ==========================================
 let modalChart = null;
@@ -233,6 +321,9 @@ const injectStockModalHTML = () => {
   const modalEl = document.createElement('div');
   modalEl.className = 'modal-overlay';
   modalEl.id = 'stockDeepDiveModal';
+  modalEl.setAttribute('role', 'dialog');
+  modalEl.setAttribute('aria-modal', 'true');
+  modalEl.setAttribute('aria-labelledby', 'smTicker');
   modalEl.innerHTML = `
     <div class="modal-content stock-modal-large">
       <div class="modal-header">
@@ -252,7 +343,7 @@ const injectStockModalHTML = () => {
             <div class="text-xl font-bold font-mono" id="smPrice">-- €</div>
             <div class="text-xs font-mono font-bold" id="smChange">--</div>
           </div>
-          <button class="modal-close" id="closeStockModal">×</button>
+          <button class="modal-close" id="closeStockModal" aria-label="Chiudi finestra">×</button>
         </div>
       </div>
 
@@ -745,6 +836,30 @@ const initSidebar = () => {
       sidebar.classList.remove('open');
       backdrop.classList.remove('active');
     });
+
+    // Close on navigation link click
+    links.forEach(link => {
+      link.addEventListener('click', () => {
+        sidebar.classList.remove('open');
+        backdrop.classList.remove('active');
+      });
+    });
+
+    // Global Escape Key Listener for Modals, Dropdowns and Sidebar
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (sidebar && sidebar.classList.contains('open')) {
+          sidebar.classList.remove('open');
+          backdrop.classList.remove('active');
+        }
+        document.querySelectorAll('.modal-overlay.active').forEach(modal => {
+          modal.classList.remove('active');
+        });
+        document.querySelectorAll('.autocomplete-dropdown, #autocompleteResults, #wlAutocompleteResults').forEach(drop => {
+          drop.style.display = 'none';
+        });
+      }
+    });
   }
 
   // Add User Footer to Sidebar
@@ -795,13 +910,14 @@ const loadGoogleFont = () => {
   document.head.appendChild(link);
 };
 
-document.addEventListener('DOMContentLoaded', () => {
+const initApp = () => {
   loadGoogleFont();
   initTheme();
   initSidebar();
   checkAuth();
   initTickerMarquee();
   injectStockModalHTML();
+  initSteppers();
 
   // Listen for theme changes to update modal chart
   window.addEventListener('themeChanged', () => {
@@ -842,4 +958,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
   });
-});
+};
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initApp);
+} else {
+  initApp();
+}

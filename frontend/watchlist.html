@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Watchlist - Stock Monitor</title>
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=2.0.1">
     <script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -30,8 +30,11 @@
                     <button class="mobile-toggle">☰</button>
                     <h1 class="page-title">⭐ Watchlist & Radar Mercati</h1>
                 </div>
-                <div class="flex gap-2">
+                <div class="flex gap-2 items-center">
                     <button class="btn btn-primary" id="btnOpenAddWatchlist">➕ Aggiungi Titolo al Radar</button>
+                    <button class="theme-toggle-btn" id="btnThemeToggle" onclick="window.toggleTheme()" title="Cambia tema" aria-label="Cambia tema">
+                        <span>🌙</span>
+                    </button>
                 </div>
             </header>
 
@@ -113,11 +116,19 @@
                 <div class="grid gap-3" style="display:grid; grid-template-columns: 1fr 1fr;">
                     <div class="form-group">
                         <label for="wlAlertAboveInput">🔔 Alert Se Sale Sopra (€/$)</label>
-                        <input type="number" step="any" id="wlAlertAboveInput" placeholder="Es. 150.00">
+                        <div class="modern-stepper" style="width: 100%; max-width: 100%;">
+                            <button type="button" class="stepper-btn dec" data-step="1" title="Diminuisci">−</button>
+                            <input type="number" step="any" id="wlAlertAboveInput" placeholder="Es. 150.00">
+                            <button type="button" class="stepper-btn inc" data-step="1" title="Aumenta">+</button>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label for="wlAlertBelowInput">🔔 Alert Se Scende Sotto (€/$)</label>
-                        <input type="number" step="any" id="wlAlertBelowInput" placeholder="Es. 120.00">
+                        <div class="modern-stepper" style="width: 100%; max-width: 100%;">
+                            <button type="button" class="stepper-btn dec" data-step="1" title="Diminuisci">−</button>
+                            <input type="number" step="any" id="wlAlertBelowInput" placeholder="Es. 120.00">
+                            <button type="button" class="stepper-btn inc" data-step="1" title="Aumenta">+</button>
+                        </div>
                     </div>
                 </div>
                 <div class="form-group">
@@ -144,11 +155,19 @@
                 <div class="text-sm font-bold text-primary mb-3" id="editAlertTickerLabel">--</div>
                 <div class="form-group">
                     <label for="editAlertAbove">Avvisami se il prezzo sale sopra (€/$):</label>
-                    <input type="number" step="any" id="editAlertAbove" placeholder="Nessun limite superiore">
+                    <div class="modern-stepper" style="width: 100%; max-width: 100%;">
+                        <button type="button" class="stepper-btn dec" data-step="1" title="Diminuisci">−</button>
+                        <input type="number" step="any" id="editAlertAbove" placeholder="Nessun limite superiore">
+                        <button type="button" class="stepper-btn inc" data-step="1" title="Aumenta">+</button>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label for="editAlertBelow">Avvisami se il prezzo scende sotto (€/$):</label>
-                    <input type="number" step="any" id="editAlertBelow" placeholder="Nessun limite inferiore">
+                    <div class="modern-stepper" style="width: 100%; max-width: 100%;">
+                        <button type="button" class="stepper-btn dec" data-step="1" title="Diminuisci">−</button>
+                        <input type="number" step="any" id="editAlertBelow" placeholder="Nessun limite inferiore">
+                        <button type="button" class="stepper-btn inc" data-step="1" title="Aumenta">+</button>
+                    </div>
                 </div>
                 <div class="flex justify-end gap-2 mt-4">
                     <button type="button" class="btn btn-ghost" id="cancelEditAlert">Annulla</button>
@@ -158,7 +177,7 @@
         </div>
     </div>
 
-    <script type="module" src="/static/js/app.js"></script>
-    <script type="module" src="/static/js/watchlist.js"></script>
+    <script type="module" src="/static/js/app.js?v=2.0.1"></script>
+    <script type="module" src="/static/js/watchlist.js?v=2.0.1"></script>
 </body>
 </html>

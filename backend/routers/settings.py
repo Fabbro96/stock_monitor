@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 from typing import List, Optional, Union
 from pydantic import BaseModel
 
@@ -121,11 +122,11 @@ async def update_settings(update_data: UserSettingsUpdate, db: AsyncSession = De
 
 @router.get("/alerts")
 async def list_alerts(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(AlertRule).join(Stock))
+    result = await db.execute(select(AlertRule).join(Stock).options(selectinload(AlertRule.stock)))
     alerts = result.scalars().all()
     output = []
     for rule in alerts:
-        stock = await db.get(Stock, rule.stock_id)
+        stock = rule.stock
         output.append({
             "id": rule.id,
             "stock_id": rule.stock_id,

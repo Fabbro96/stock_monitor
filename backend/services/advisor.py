@@ -90,7 +90,7 @@ class AdvisorService:
         prompt = self._build_macro_prompt(italian_stocks, us_stocks, settings_summary)
         
         async with _gemini_semaphore:
-            response_json = await asyncio.to_thread(self._call_gemini, prompt)
+            response_json = await self._call_gemini(prompt)
         
         if not response_json:
             logger.error("Risposta vuota o formato non valido da Gemini.")
@@ -263,7 +263,7 @@ Rispondi ESCLUSIVAMENTE in formato JSON con questo schema:
 }}
 """
         async with _gemini_semaphore:
-            response_json = await asyncio.to_thread(self._call_gemini, prompt)
+            response_json = await self._call_gemini(prompt)
         
         if response_json and "action" in response_json:
             if holding_info:
@@ -389,17 +389,25 @@ Rispondi ESCLUSIVAMENTE in formato JSON con la seguente struttura:
 }}
 """
 
-    def _call_gemini(self, prompt: str) -> dict:
+    async def _call_gemini(self, prompt: str) -> dict:
         if not self.client:
             return {}
+        model_name = settings.GEMINI_MODEL or 'gemini-3.7-flash'
         try:
-            model_name = settings.GEMINI_MODEL or 'gemini-3.7-flash'
-            logger.info(f"Chiamata a Google Gemini con modello: {model_name}")
-            response = self.client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config={'response_mime_type': 'application/json'}
-            )
+            logger.info(f"Chiamata asincrona a Google Gemini con modello: {model_name}")
+            if hasattr(self.client, 'aio') and hasattr(self.client.aio, 'models'):
+                response = await self.client.aio.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config={'response_mime_type': 'application/json'}
+                )
+            else:
+                response = await asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model=model_name,
+                    contents=prompt,
+                    config={'response_mime_type': 'application/json'}
+                )
             return json.loads(response.text)
         except Exception as e:
             logger.error(f"Errore chiamata Gemini API ({model_name}): {e}")

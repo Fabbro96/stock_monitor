@@ -27,17 +27,23 @@ const fetchApi = async (endpoint, options = {}) => {
       if (!window.location.pathname.includes('login.html')) {
         const currentPath = window.location.pathname + window.location.search;
         window.location.href = `/static/login.html?redirect=${encodeURIComponent(currentPath)}`;
-        return null;
       }
+      throw new Error('Sessione non valida o scaduta. Effettua il login.');
     }
 
     // For 204 No Content
     if (response.status === 204) return null;
     
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      data = null;
+    }
     
     if (!response.ok) {
-      throw new Error(data.detail || data.message || `API Error: ${response.status}`);
+      const msg = data?.detail || data?.message || `API Error: ${response.status}`;
+      throw new Error(msg);
     }
     
     return data;
@@ -123,6 +129,19 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ extra_cash })
   }),
+
+  // Trade Ledger & Dividends
+  getTransactions: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return fetchApi(`/portfolio/transactions${qs ? '?' + qs : ''}`);
+  },
+  createTransaction: (data) => fetchApi('/portfolio/transactions', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  }),
+  deleteTransaction: (id) => fetchApi(`/portfolio/transactions/${id}`, { method: 'DELETE' }),
+  getRealizedPnL: () => fetchApi('/portfolio/realized-pnl'),
+  getDividends: () => fetchApi('/portfolio/dividends'),
   
   importPortfolio: async (csvFile) => {
     const formData = new FormData();

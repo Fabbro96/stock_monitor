@@ -6,9 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Respons
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 
 from backend.database import get_db
-from backend.models.portfolio import Holding
+from backend.models.portfolio import Holding, Transaction
 from backend.models.stock import Stock, PriceHistory
 from backend.models.target_allocation import TargetAllocation
 from backend.services.market_data import MarketDataService
@@ -478,4 +479,285 @@ async def seed_demo_data(db: AsyncSession = Depends(get_db)):
         "created_holdings": created_holdings,
         "created_watchlist": created_watchlist
     }
+
+
+# ---------------------------------------------------------------------------
+# Trade Ledger (Registro Transazioni, Storico Compravendite & P&L Realizzato)
+# ---------------------------------------------------------------------------
+class TransactionCreate(BaseModel):
+    ticker: str
+    type: str  # BUY, SELL, DIVIDEND
+    quantity: float = 0.0
+    price: float = 0.0
+    fee: float = 0.0
+    transaction_date: Optional[datetime] = None
+    notes: Optional[str] = ""
+
+
+@router.get("/transactions")
+async def list_transactions(
+    type: Optional[str] = None,
+    ticker: Optional[str] = None,
+    limit: int = 100,
+    skip: int = 0,
+    db: AsyncSession = Depends(get_db)
+):
+    """Restituisce lo storico completo delle transazioni registrate nel Trade Ledger."""
+    query = select(Transaction).join(Stock).options(selectinload(Transaction.stock))
+    if type:
+        query = query.where(Transaction.type == type.upper())
+    if ticker:
+        query = query.where(Stock.ticker == ticker.strip().upper())
+    query = query.order_by(Transaction.transaction_date.desc()).offset(skip).limit(limit)
+
+    result = await db.execute(query)
+    txs = result.scalars().all()
+    output = []
+    for tx in txs:
+        output.append({
+            "id": tx.id,
+            "stock_id": tx.stock_id,
+            "ticker": tx.stock.ticker if tx.stock else "?",
+            "name": tx.stock.name if tx.stock else "",
+            "market": tx.stock.market if tx.stock else "US",
+            "type": tx.type,
+            "quantity": tx.quantity,
+            "price": tx.price,
+            "fee": tx.fee,
+            "realized_pnl": tx.realized_pnl,
+            "currency": tx.currency or (tx.stock.currency if tx.stock else "EUR"),
+            "transaction_date": str(tx.transaction_date) if tx.transaction_date else str(tx.created_at),
+            "notes": tx.notes or ""
+        })
+    return output
+
+
+@router.post("/transactions")
+async def create_transaction(tx_in: TransactionCreate, db: AsyncSession = Depends(get_db)):
+    """
+    Registra una nuova transazione (BUY, SELL o DIVIDEND) e aggiorna atomicamente il portafoglio.
+    - BUY: incrementa o crea la posizione calcolando il nuovo prezzo medio di carico ponderato.
+    - SELL: calcola il P&L realizzato, decrementa la posizione (o la rimuove se 0).
+    - DIVIDEND: registra l'incasso cedolare.
+    """
+    t_type = (tx_in.type or "BUY").strip().upper()
+    if t_type not in ("BUY", "SELL", "DIVIDEND"):
+        raise HTTPException(status_code=400, detail="Il tipo transazione deve essere BUY, SELL o DIVIDEND.")
+
+    ticker = tx_in.ticker.strip().upper()
+    if not ticker:
+        raise HTTPException(status_code=400, detail="Specificare un ticker valido.")
+
+    # Risolve o crea Stock
+    res = await db.execute(select(Stock).where(Stock.ticker == ticker))
+    stock = res.scalars().first()
+    if not stock:
+        info = await MarketDataService.resolve_stock_info(ticker)
+        stock = Stock(
+            ticker=ticker,
+            name=info.get("name", ticker),
+            market=info.get("market", "IT" if ticker.endswith(".MI") else "US"),
+            currency=info.get("currency", "EUR" if ticker.endswith(".MI") else "USD")
+        )
+        db.add(stock)
+        await db.commit()
+        await db.refresh(stock)
+
+    tx_date = tx_in.transaction_date or datetime.now(timezone.utc)
+    realized_pnl = None
+
+    # Recupera posizione esistente
+    h_res = await db.execute(select(Holding).where(Holding.stock_id == stock.id))
+    holding = h_res.scalars().first()
+
+    if t_type == "BUY":
+        if tx_in.quantity <= 0 or tx_in.price <= 0:
+            raise HTTPException(status_code=400, detail="Quantità e prezzo devono essere maggiori di zero per un acquisto.")
+        
+        if holding:
+            new_qty = holding.quantity + tx_in.quantity
+            new_avg = ((holding.quantity * holding.avg_purchase_price) + (tx_in.quantity * tx_in.price)) / new_qty
+            holding.quantity = round(new_qty, 4)
+            holding.avg_purchase_price = round(new_avg, 4)
+            if tx_in.notes:
+                holding.notes = tx_in.notes
+        else:
+            holding = Holding(
+                stock_id=stock.id,
+                quantity=tx_in.quantity,
+                avg_purchase_price=tx_in.price,
+                purchase_date=tx_date.date() if isinstance(tx_date, datetime) else tx_date,
+                notes=tx_in.notes
+            )
+            db.add(holding)
+        realized_pnl = 0.0
+
+    elif t_type == "SELL":
+        if tx_in.quantity <= 0 or tx_in.price <= 0:
+            raise HTTPException(status_code=400, detail="Quantità e prezzo devono essere maggiori di zero per una vendita.")
+        if not holding or holding.quantity < tx_in.quantity:
+            avail = holding.quantity if holding else 0
+            raise HTTPException(
+                status_code=400,
+                detail=f"Quantità insufficiente in portafoglio: possiedi {avail} quote di {ticker}, impossibile venderne {tx_in.quantity}."
+            )
+        
+        # Calcolo P&L realizzato = (Prezzo Vendita - Prezzo Medio di Carico) * Qty - Commissioni
+        realized_pnl = round((tx_in.price - holding.avg_purchase_price) * tx_in.quantity - tx_in.fee, 2)
+        holding.quantity = round(holding.quantity - tx_in.quantity, 4)
+        if holding.quantity <= 0.0001:
+            await db.delete(holding)
+
+    elif t_type == "DIVIDEND":
+        if tx_in.price < 0:
+            raise HTTPException(status_code=400, detail="L'importo del dividendo non può essere negativo.")
+        total_div = (tx_in.price * tx_in.quantity) if tx_in.quantity > 0 else tx_in.price
+        realized_pnl = round(total_div - tx_in.fee, 2)
+
+    # Crea record transazione
+    tx = Transaction(
+        stock_id=stock.id,
+        type=t_type,
+        quantity=tx_in.quantity,
+        price=tx_in.price,
+        fee=tx_in.fee,
+        realized_pnl=realized_pnl,
+        currency=stock.currency or "EUR",
+        transaction_date=tx_date,
+        notes=tx_in.notes or ""
+    )
+    db.add(tx)
+    await db.commit()
+    await db.refresh(tx)
+
+    return {
+        "status": "success",
+        "transaction": {
+            "id": tx.id,
+            "ticker": ticker,
+            "type": tx.type,
+            "quantity": tx.quantity,
+            "price": tx.price,
+            "fee": tx.fee,
+            "realized_pnl": tx.realized_pnl,
+            "currency": tx.currency,
+            "transaction_date": str(tx.transaction_date)
+        }
+    }
+
+
+@router.delete("/transactions/{tx_id}")
+async def delete_transaction(tx_id: int, db: AsyncSession = Depends(get_db)):
+    """Elimina una riga dallo storico transazioni."""
+    tx = await db.get(Transaction, tx_id)
+    if not tx:
+        raise HTTPException(status_code=404, detail="Transazione non trovata.")
+    await db.delete(tx)
+    await db.commit()
+    return {"status": "success", "message": f"Transazione #{tx_id} rimossa."}
+
+
+@router.get("/realized-pnl")
+async def get_realized_pnl(db: AsyncSession = Depends(get_db)):
+    """Riepilogo globale di P&L Realizzato, dividendi incassati e commissioni pagate."""
+    res = await db.execute(select(Transaction).join(Stock).options(selectinload(Transaction.stock)))
+    txs = res.scalars().all()
+    usd_to_eur = await MarketDataService.get_fx_rate("USD", "EUR")
+
+    total_realized_capital_gains = 0.0
+    total_dividends_collected = 0.0
+    total_fees_paid = 0.0
+    wins = 0
+    losses = 0
+
+    for tx in txs:
+        fx = usd_to_eur if (tx.currency == "USD") else 1.0
+        fee_eur = tx.fee * fx
+        total_fees_paid += fee_eur
+
+        if tx.type == "SELL" and tx.realized_pnl is not None:
+            pnl_eur = tx.realized_pnl * fx
+            total_realized_capital_gains += pnl_eur
+            if pnl_eur >= 0:
+                wins += 1
+            else:
+                losses += 1
+        elif tx.type == "DIVIDEND":
+            div_val = (tx.price * tx.quantity if tx.quantity > 0 else tx.price) * fx
+            total_dividends_collected += div_val
+
+    net_realized_profit = total_realized_capital_gains + total_dividends_collected - total_fees_paid
+    win_rate = (wins / (wins + losses) * 100) if (wins + losses) > 0 else 0.0
+
+    return {
+        "total_realized_capital_gains": round(total_realized_capital_gains, 2),
+        "total_dividends_collected": round(total_dividends_collected, 2),
+        "total_fees_paid": round(total_fees_paid, 2),
+        "net_realized_profit": round(net_realized_profit, 2),
+        "trade_count": wins + losses,
+        "win_trades": wins,
+        "loss_trades": losses,
+        "win_rate_percent": round(win_rate, 1),
+        "transactions_count": len(txs)
+    }
+
+
+@router.get("/dividends")
+async def get_dividends_calendar(db: AsyncSession = Depends(get_db)):
+    """
+    Calendario dividendi del portafoglio:
+    Calcola il rendimento da dividendi, Yield on Cost (YoC) e flussi stimati per ogni holding.
+    """
+    rows = await build_portfolio_rows(db)
+    summary = await build_portfolio_summary(db)
+    usd_to_eur = await MarketDataService.get_fx_rate("USD", "EUR")
+
+    dividends_list = []
+    total_projected_annual_eur = 0.0
+
+    for h in rows:
+        ticker = h["ticker"]
+        div_yield = MarketDataService.get_stock_dividend_yield(ticker)
+        current_price = h["current_price"]
+        avg_buy_price = h["avg_purchase_price"]
+        qty = h["quantity"]
+        fx = h.get("fx_rate_to_eur", 1.0)
+
+        # Calcolo dividendo annuo per azione
+        annual_div_per_share = round(current_price * (div_yield / 100.0), 4) if div_yield > 0 else 0.0
+        annual_income_native = round(annual_div_per_share * qty, 2)
+        annual_income_eur = round(annual_income_native * fx, 2)
+        total_projected_annual_eur += annual_income_eur
+
+        # Yield on Cost: dividendo annuo diviso per prezzo medio di acquisto
+        yield_on_cost = round((annual_div_per_share / avg_buy_price * 100.0), 2) if avg_buy_price > 0 else 0.0
+
+        dividends_list.append({
+            "ticker": ticker,
+            "name": h["name"],
+            "market": h["market"],
+            "currency": h["currency"],
+            "quantity": qty,
+            "current_price": current_price,
+            "avg_purchase_price": avg_buy_price,
+            "dividend_yield_pct": div_yield,
+            "yield_on_cost_pct": yield_on_cost,
+            "annual_dividend_per_share": annual_div_per_share,
+            "annual_income_eur": annual_income_eur,
+            "monthly_income_eur": round(annual_income_eur / 12.0, 2)
+        })
+
+    # Ordina per reddito annuo stimato
+    dividends_list.sort(key=lambda x: x["annual_income_eur"], reverse=True)
+
+    return {
+        "holdings": dividends_list,
+        "total_annual_dividend_eur": round(total_projected_annual_eur, 2),
+        "total_monthly_dividend_eur": round(total_projected_annual_eur / 12.0, 2),
+        "portfolio_total_value": summary.get("total_value", 0.0),
+        "portfolio_yield_on_cost": round(
+            (total_projected_annual_eur / summary["total_invested"] * 100.0), 2
+        ) if summary.get("total_invested", 0) > 0 else 0.0
+    }
+
 

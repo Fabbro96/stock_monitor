@@ -1,7 +1,11 @@
 import json
+import time
+from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
+from sqlalchemy import func
 from typing import Optional
 from datetime import datetime, timedelta, timezone
 
@@ -10,6 +14,22 @@ from backend.models.advice import Advice
 from backend.models.stock import Stock
 from backend.services.advisor import AdvisorService
 from backend.services.market_data import MarketDataService
+
+# Rate limiter in-memory per proteggere le quote API Gemini
+_CALL_TIMESTAMPS = defaultdict(list)
+RATE_LIMIT_MAX_CALLS = 12  # Max 12 richieste al minuto
+RATE_LIMIT_WINDOW_SECONDS = 60
+
+def _check_rate_limit(client_id: str = "global"):
+    now = time.time()
+    timestamps = _CALL_TIMESTAMPS[client_id]
+    _CALL_TIMESTAMPS[client_id] = [t for t in timestamps if now - t < RATE_LIMIT_WINDOW_SECONDS]
+    if len(_CALL_TIMESTAMPS[client_id]) >= RATE_LIMIT_MAX_CALLS:
+        raise HTTPException(
+            status_code=429,
+            detail="Troppe richieste di analisi AI inviate in breve tempo. Riprova tra 60 secondi."
+        )
+    _CALL_TIMESTAMPS[client_id].append(now)
 
 router = APIRouter(prefix="/api/advice", tags=["advice"])
 
@@ -23,7 +43,7 @@ async def list_advices(
     limit: int = 20,
     db: AsyncSession = Depends(get_db)
 ):
-    query = select(Advice)
+    query = select(Advice).options(selectinload(Advice.stock))
     
     if market:
         query = query.where(Advice.market == market.upper())
@@ -32,9 +52,8 @@ async def list_advices(
         
     if date:
         try:
-            day_start = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            day_end = day_start + timedelta(days=1)
-            query = query.where(Advice.timestamp >= day_start).where(Advice.timestamp < day_end)
+            target_date = datetime.strptime(date, "%Y-%m-%d").date()
+            query = query.where(func.date(Advice.timestamp) == target_date)
         except ValueError:
             pass
     else:
@@ -53,13 +72,8 @@ async def list_advices(
         except Exception:
             stocks_analysis = []
 
-        stock_ticker = None
-        stock_name = None
-        if a.stock_id:
-            st = await db.get(Stock, a.stock_id)
-            if st:
-                stock_ticker = st.ticker
-                stock_name = st.name
+        stock_ticker = a.stock.ticker if a.stock else None
+        stock_name = a.stock.name if a.stock else None
 
         output.append({
             "id": a.id,
@@ -123,6 +137,7 @@ async def analyze_stock_on_demand(ticker: str, db: AsyncSession = Depends(get_db
     """
     Richiede un'analisi istantanea approfondita a Google Gemini 3.7 Flash per un singolo titolo.
     """
+    _check_rate_limit(f"stock_{ticker.upper()}")
     advisor = AdvisorService()
     analysis = await advisor.analyze_single_stock(ticker, db)
     return analysis
@@ -140,6 +155,7 @@ async def toggle_follow_advice(advice_id: int, db: AsyncSession = Depends(get_db
 
 @router.post("/generate")
 async def generate_advice(force: bool = Query(False), db: AsyncSession = Depends(get_db)):
+    _check_rate_limit("generate")
     if not force and not MarketDataService.are_any_markets_open():
         raise HTTPException(
             status_code=400,

@@ -30,15 +30,22 @@ import httpx
 # Configurazione ambiente di test (ISOLATO: DB dedicato, niente Telegram)
 # ---------------------------------------------------------------------------
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# Rende importabile il pacchetto backend quando lo script viene lanciato
-# direttamente (es. `python tests/e2e_test.py` -> sys.path contiene tests/)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 TEST_DIR = "/tmp/stock_monitor_e2e"
 TEST_DB = os.path.join(TEST_DIR, "stock_monitor_test.db")
-BASE = "http://127.0.0.1:8123"
 ADMIN_USER = "admin"
 ADMIN_PASS = "admin123"
+
+# Imposta variabili ambiente di test prima di qualsiasi import
+os.environ["DB_PATH"] = TEST_DB
+os.environ["TELEGRAM_BOT_TOKEN"] = ""
+os.environ["TELEGRAM_CHAT_ID"] = ""
+os.environ["TELEGRAM_BOT_ENABLED"] = "false"
+os.environ["GEMINI_API_KEY"] = ""
+os.environ["ADMIN_USERNAME"] = ADMIN_USER
+os.environ["ADMIN_PASSWORD"] = ADMIN_PASS
+os.environ["LOG_LEVEL"] = "INFO"
 
 PASS = 0
 FAIL = 0
@@ -54,49 +61,6 @@ def check(name: str, condition: bool, detail: str = ""):
         FAIL += 1
         FAILURES.append(f"{name} {detail}")
         print(f"  ❌ {name} {detail}")
-
-
-def free_port(port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        try:
-            s.bind(("127.0.0.1", port))
-            return True
-        except OSError:
-            return False
-
-
-def start_server() -> subprocess.Popen:
-    shutil.rmtree(TEST_DIR, ignore_errors=True)
-    os.makedirs(TEST_DIR, exist_ok=True)
-    env = os.environ.copy()
-    env.update({
-        "DB_PATH": TEST_DB,
-        "TELEGRAM_BOT_TOKEN": "",
-        "TELEGRAM_CHAT_ID": "",
-        "TELEGRAM_BOT_ENABLED": "false",
-        "GEMINI_API_KEY": "",  # test senza dipendenze Gemini
-        "ADMIN_USERNAME": ADMIN_USER,
-        "ADMIN_PASSWORD": ADMIN_PASS,
-        "LOG_LEVEL": "INFO",
-    })
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "backend.main:app",
-         "--host", "127.0.0.1", "--port", "8123"],
-        cwd=PROJECT_ROOT, env=env,
-        stdout=open(os.path.join(TEST_DIR, "server.log"), "w"),
-        stderr=subprocess.STDOUT,
-        preexec_fn=os.setsid,
-    )
-    # Attendiamo /health
-    for _ in range(60):
-        try:
-            r = httpx.get(f"{BASE}/health", timeout=2)
-            if r.status_code == 200:
-                return proc
-        except Exception:
-            time.sleep(0.5)
-    proc.kill()
-    raise RuntimeError("Server di test non avviato (vedere /tmp/stock_monitor_e2e/server.log)")
 
 
 def seed_price_history():
@@ -209,12 +173,15 @@ async def test_portfolio_crud(c: httpx.AsyncClient, h: dict):
     portfolio = r.json()
     check("Portafoglio ha 2 posizioni", len(portfolio) == 2)
     check("Righe hanno current_price valorizzato", all(p.get("current_price") for p in portfolio))
+    check("Righe hanno fx_rate_to_eur", all("fx_rate_to_eur" in p for p in portfolio))
+    check("Righe hanno total_value_eur", all("total_value_eur" in p for p in portfolio))
 
     r = await c.get("/api/portfolio/summary", headers=h)
     check("GET /api/portfolio/summary -> 200", r.status_code == 200)
     s = r.json()
     check("Summary ha total_value > 0", s.get("total_value", 0) > 0)
     check("Summary ha daily_pnl (campo nuovo)", "daily_pnl" in s)
+    check("Summary ha fx_usd_eur valorizzato", "fx_usd_eur" in s and s["fx_usd_eur"] > 0)
 
     # Update di una posizione
     hid = portfolio[0]["id"]
@@ -414,15 +381,89 @@ async def test_concurrency(c: httpx.AsyncClient, h: dict):
     check("Nessun 500", 500 not in statuses)
 
 
+async def test_trade_ledger_and_dividends(c: httpx.AsyncClient, h: dict):
+    print("\n[13] Trade Ledger & Calendario Dividendi")
+    
+    # 1. Registra BUY
+    r = await c.post("/api/portfolio/transactions", headers=h, json={
+        "ticker": "RACE.MI",
+        "type": "BUY",
+        "quantity": 10,
+        "price": 380.0,
+        "fee": 5.0,
+        "notes": "Primo ingresso long term"
+    })
+    check("POST /api/portfolio/transactions BUY -> 200", r.status_code == 200)
+    tx_data = r.json().get("transaction", {})
+    check("Transazione BUY ha ticker RACE.MI", tx_data.get("ticker") == "RACE.MI")
+    
+    # 2. Registra SELL parziale con P&L Realizzato
+    r = await c.post("/api/portfolio/transactions", headers=h, json={
+        "ticker": "RACE.MI",
+        "type": "SELL",
+        "quantity": 4,
+        "price": 420.0,
+        "fee": 5.0,
+        "notes": "Presa di profitto parziale"
+    })
+    check("POST /api/portfolio/transactions SELL -> 200", r.status_code == 200)
+    tx_sell = r.json().get("transaction", {})
+    check("SELL calcola realized_pnl correttamente", tx_sell.get("realized_pnl") == 155.0)
+
+    # 3. Registra DIVIDEND
+    r = await c.post("/api/portfolio/transactions", headers=h, json={
+        "ticker": "ENEL.MI",
+        "type": "DIVIDEND",
+        "quantity": 100,
+        "price": 0.43,
+        "fee": 0.0,
+        "notes": "Dividendo semestrale"
+    })
+    check("POST /api/portfolio/transactions DIVIDEND -> 200", r.status_code == 200)
+
+    # 4. Lista Transazioni
+    r = await c.get("/api/portfolio/transactions", headers=h)
+    check("GET /api/portfolio/transactions -> 200", r.status_code == 200)
+    txs = r.json()
+    check("Trade ledger contiene almeno 3 transazioni", len(txs) >= 3)
+
+    # 5. Filtro per tipo SELL
+    r = await c.get("/api/portfolio/transactions?type=SELL", headers=h)
+    check("GET transactions filter type=SELL -> 200", r.status_code == 200 and all(t["type"] == "SELL" for t in r.json()))
+
+    # 6. Realized P&L Summary
+    r = await c.get("/api/portfolio/realized-pnl", headers=h)
+    check("GET /api/portfolio/realized-pnl -> 200", r.status_code == 200)
+    pnl_summary = r.json()
+    check("realized-pnl ha total_realized_capital_gains > 0", pnl_summary.get("total_realized_capital_gains", 0) > 0)
+    check("realized-pnl ha total_dividends_collected > 0", pnl_summary.get("total_dividends_collected", 0) > 0)
+    check("realized-pnl ha win_rate_percent", "win_rate_percent" in pnl_summary)
+
+    # 7. Calendario Dividendi & Yield on Cost
+    r = await c.get("/api/portfolio/dividends", headers=h)
+    check("GET /api/portfolio/dividends -> 200", r.status_code == 200)
+    div_cal = r.json()
+    check("dividends ha holdings list", isinstance(div_cal.get("holdings"), list))
+    check("dividends ha total_annual_dividend_eur", "total_annual_dividend_eur" in div_cal)
+    check("dividends ha portfolio_yield_on_cost", "portfolio_yield_on_cost" in div_cal)
 
 
 # ===========================================================================
 # MAIN RUNNER
 # ===========================================================================
 async def run_all():
-    proc = start_server()
-    try:
-        async with httpx.AsyncClient(base_url=BASE, timeout=60.0) as c:
+    print("=" * 60)
+    print("Stock Monitor - Suite di Test End-to-End")
+    print("=" * 60)
+
+    shutil.rmtree(TEST_DIR, ignore_errors=True)
+    os.makedirs(TEST_DIR, exist_ok=True)
+
+    from backend.main import app
+
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test", timeout=60.0) as c:
             token = await test_health_and_auth(c)
             h = {"Authorization": f"Bearer {token}"}
 
@@ -432,6 +473,7 @@ async def run_all():
 
             await test_watchlist(c, h)
             await test_portfolio_crud(c, h)
+            await test_trade_ledger_and_dividends(c, h)
             await test_risk_metrics(c, h)
             await test_benchmarks_and_performance(c, h)
             await test_rebalancer(c, h)
@@ -440,11 +482,6 @@ async def run_all():
             await test_advice_fallback(c, h)
             await test_concurrency(c, h)
             await test_sqlite_integrity()
-    finally:
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-        except Exception:
-            proc.kill()
 
     print("\n" + "=" * 60)
     print(f"RISULTATO: {PASS} passati, {FAIL} falliti")

@@ -24,20 +24,42 @@ const drawPieChart = (data) => {
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
   
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const dpr = window.devicePixelRatio || 1;
+  const displayWidth = 190;
+  const displayHeight = 190;
+
+  if (canvas.width !== displayWidth * dpr || canvas.height !== displayHeight * dpr) {
+    canvas.width = displayWidth * dpr;
+    canvas.height = displayHeight * dpr;
+    canvas.style.width = `${displayWidth}px`;
+    canvas.style.height = `${displayHeight}px`;
+  }
   
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, displayWidth, displayHeight);
+  
+  const centerX = displayWidth / 2;
+  const centerY = displayHeight / 2;
+  const outerRadius = Math.min(centerX, centerY) - 8;
+  const innerRadius = outerRadius * 0.58;
+
   if (!data || data.length === 0) {
     ctx.fillStyle = 'rgba(122, 162, 247, 0.15)';
     ctx.beginPath();
-    ctx.arc(canvas.width/2, canvas.height/2, Math.min(canvas.width/2, canvas.height/2) - 10, 0, 2 * Math.PI);
+    ctx.arc(centerX, centerY, outerRadius, 0, 2 * Math.PI);
     ctx.fill();
+    ctx.restore();
     const legend = document.getElementById('allocationLegend');
     if (legend) legend.innerHTML = '<div class="text-muted text-center text-xs">Nessun dato</div>';
     return;
   }
 
   const total = data.reduce((sum, item) => sum + (item.value || 0), 0);
-  if (total <= 0) return;
+  if (total <= 0) {
+    ctx.restore();
+    return;
+  }
 
   let startAngle = -0.5 * Math.PI;
 
@@ -45,18 +67,21 @@ const drawPieChart = (data) => {
     const sliceAngle = (item.value / total) * 2 * Math.PI;
     ctx.fillStyle = colors[i % colors.length];
     ctx.beginPath();
-    ctx.moveTo(canvas.width/2, canvas.height/2);
-    ctx.arc(canvas.width/2, canvas.height/2, Math.min(canvas.width/2, canvas.height/2) - 10, startAngle, startAngle + sliceAngle);
+    ctx.arc(centerX, centerY, outerRadius, startAngle, startAngle + sliceAngle);
+    ctx.arc(centerX, centerY, innerRadius, startAngle + sliceAngle, startAngle, true);
+    ctx.closePath();
     ctx.fill();
     startAngle += sliceAngle;
   });
+
+  ctx.restore();
 
   const legend = document.getElementById('allocationLegend');
   if (legend) {
     legend.innerHTML = data.slice(0, 7).map((item, i) => `
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2">
-          <div style="width:10px;height:10px;background-color:${colors[i % colors.length]};border-radius:2px;"></div>
+          <div style="width:10px;height:10px;background-color:${colors[i % colors.length]};border-radius:3px;"></div>
           <span class="font-bold text-primary font-mono">${item.label}</span>
         </div>
         <span class="font-mono text-secondary">${formatPercent((item.value / total) * 100)}</span>
@@ -78,8 +103,7 @@ const updateAllocationChart = () => {
     const data = portfolioData.map(item => ({
       label: item.ticker,
       value: item.total_value || ((item.current_price || item.avg_purchase_price) * item.quantity)
-    }));
-    data.sort((a, b) => b.value - a.value);
+    })).filter(d => d.value > 0);
     drawPieChart(data);
   }
 };
@@ -160,26 +184,36 @@ const renderTable = () => {
         
         <!-- Editable Quantity -->
         <td class="text-right">
-          <input 
-            type="number" 
-            class="inline-input input-qty" 
-            data-id="${item.id}" 
-            value="${displayQty}" 
-            step="any" 
-            min="0"
-          >
+          <div class="modern-stepper">
+            <button type="button" class="stepper-btn dec" data-step="1" title="Diminuisci (−1, Shift: −10)" aria-label="Diminuisci quantità per ${item.ticker}">−</button>
+            <input 
+              type="number" 
+              class="inline-input input-qty font-mono" 
+              data-id="${item.id}" 
+              value="${displayQty}" 
+              step="1" 
+              min="0"
+              aria-label="Quantità per ${item.ticker}"
+            >
+            <button type="button" class="stepper-btn inc" data-step="1" title="Aumenta (+1, Shift: +10)" aria-label="Aumenta quantità per ${item.ticker}">+</button>
+          </div>
         </td>
 
         <!-- Editable Purchase Price -->
         <td class="text-right">
-          <input 
-            type="number" 
-            class="inline-input input-price" 
-            data-id="${item.id}" 
-            value="${displayPrice}" 
-            step="any" 
-            min="0"
-          >
+          <div class="modern-stepper">
+            <button type="button" class="stepper-btn dec" data-step="0.5" title="Diminuisci (−0.50, Shift: −5.00)" aria-label="Diminuisci prezzo di carico per ${item.ticker}">−</button>
+            <input 
+              type="number" 
+              class="inline-input input-price font-mono" 
+              data-id="${item.id}" 
+              value="${displayPrice}" 
+              step="any" 
+              min="0"
+              aria-label="Prezzo medio carico per ${item.ticker}"
+            >
+            <button type="button" class="stepper-btn inc" data-step="0.5" title="Aumenta (+0.50, Shift: +5.00)" aria-label="Aumenta prezzo di carico per ${item.ticker}">+</button>
+          </div>
         </td>
 
         <td class="text-right font-mono font-bold">${formatCurrency(currentPrice, item.currency)}</td>
@@ -192,7 +226,7 @@ const renderTable = () => {
         </td>
         <td class="text-center">
           <div class="flex justify-center gap-1">
-            <button class="btn btn-ghost btn-sm text-loss" title="Elimina" onclick="window.deleteHolding(${item.id})">🗑️</button>
+            <button class="btn btn-ghost btn-sm text-loss" title="Elimina" aria-label="Elimina posizione ${item.ticker}" onclick="window.deleteHolding(${item.id})">🗑️</button>
           </div>
         </td>
       </tr>
@@ -273,7 +307,7 @@ export const loadPortfolio = async () => {
     const totPnL = summaryData.total_pnl || 0;
     const totPct = summaryData.total_pnl_percent || 0;
     pnlEl.textContent = `${formatCurrency(totPnL)} (${formatPercent(totPct)})`;
-    pnlEl.className = `text-2xl font-bold font-mono ${totPnL >= 0 ? 'text-profit' : 'text-loss'}`;
+    pnlEl.className = `text-2xl font-bold font-mono mt-1 ${totPnL >= 0 ? 'text-profit' : 'text-loss'}`;
 
     const divEl = document.getElementById('totalDividends');
     if (divEl) {
@@ -284,9 +318,105 @@ export const loadPortfolio = async () => {
     updateSaveBar();
     renderTable();
     updateAllocationChart();
+    loadRealizedPnL();
+    loadTransactions();
 
   } catch (error) {
     showToast('Errore nel caricamento del portafoglio', 'error');
+  }
+};
+
+export const loadRealizedPnL = async () => {
+  try {
+    const res = await api.getRealizedPnL();
+    const el = document.getElementById('totalRealizedPnL');
+    if (el && res) {
+      const net = res.net_realized_profit || 0;
+      el.textContent = `${net >= 0 ? '+' : ''}${formatCurrency(net)}`;
+      el.className = `text-2xl font-bold font-mono mt-1 ${net >= 0 ? 'text-profit' : 'text-loss'}`;
+    }
+  } catch (e) {
+    console.error('Error loading realized PnL:', e);
+  }
+};
+
+let currentTxFilter = 'ALL';
+
+export const loadTransactions = async (type = currentTxFilter) => {
+  currentTxFilter = type;
+  const tbody = document.getElementById('transactionsTableBody');
+  if (!tbody) return;
+
+  try {
+    const params = type !== 'ALL' ? { type } : {};
+    const txs = await api.getTransactions(params);
+
+    if (!txs || txs.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="10" class="text-center text-muted py-6">
+            Nessuna transazione registrata ${type !== 'ALL' ? `con filtro <strong>${type}</strong>` : ''}.
+            <div class="mt-2">
+              <button class="btn btn-primary btn-sm" onclick="window.openTxModal()">➕ Registra la prima esecuzione</button>
+            </div>
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = txs.map(tx => {
+      const isBuy = tx.type === 'BUY';
+      const isSell = tx.type === 'SELL';
+      const isDiv = tx.type === 'DIVIDEND';
+
+      const typeBadge = isBuy 
+        ? '<span class="badge badge-buy">🟢 BUY</span>'
+        : (isSell ? '<span class="badge badge-sell">🔴 SELL</span>' : '<span class="badge badge-hold">💰 DIVIDENDO</span>');
+
+      const dateStr = tx.transaction_date ? tx.transaction_date.substring(0, 10) : '--';
+      
+      let pnlHtml = '--';
+      if (isSell && tx.realized_pnl !== null) {
+        const pnl = tx.realized_pnl;
+        pnlHtml = `<span class="${pnl >= 0 ? 'text-profit' : 'text-loss'} font-bold font-mono">${pnl >= 0 ? '+' : ''}${formatCurrency(pnl, tx.currency)}</span>`;
+      } else if (isDiv && tx.realized_pnl !== null) {
+        pnlHtml = `<span class="text-profit font-bold font-mono">+${formatCurrency(tx.realized_pnl, tx.currency)}</span>`;
+      }
+
+      return `
+        <tr>
+          <td class="font-mono text-xs text-muted">${dateStr}</td>
+          <td>${typeBadge}</td>
+          <td>
+            <a href="#" class="stock-ticker-link font-bold font-mono" data-stock="${tx.ticker}">${tx.ticker}</a>
+          </td>
+          <td class="text-secondary text-xs">${tx.name || tx.ticker}</td>
+          <td class="text-right font-mono">${isDiv ? '--' : tx.quantity}</td>
+          <td class="text-right font-mono">${formatCurrency(tx.price, tx.currency)}</td>
+          <td class="text-right font-mono text-muted text-xs">${tx.fee > 0 ? formatCurrency(tx.fee, 'EUR') : '0 €'}</td>
+          <td class="text-right font-mono">${pnlHtml}</td>
+          <td class="text-xs text-muted" title="${tx.notes || ''}">${tx.notes ? tx.notes.substring(0, 25) : '--'}</td>
+          <td class="text-center">
+            <button class="btn btn-ghost btn-sm text-loss" title="Elimina transazione" aria-label="Elimina transazione #${tx.id}" onclick="window.deleteTransaction(${tx.id})">🗑️</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="10" class="text-center text-loss py-4">Errore nel caricamento del Trade Ledger</td></tr>`;
+  }
+};
+
+window.deleteTransaction = async (id) => {
+  if (!confirm(`Sei sicuro di voler eliminare la transazione #${id}?`)) return;
+  try {
+    await api.deleteTransaction(id);
+    showToast('Transazione rimossa dal registro', 'info');
+    loadTransactions();
+    loadRealizedPnL();
+  } catch (e) {
+    showToast(e.message || 'Errore durante la cancellazione', 'error');
   }
 };
 
@@ -317,6 +447,7 @@ window.deleteHolding = async (id) => {
 const holdingModal = document.getElementById('holdingModal');
 const confirmSaveModal = document.getElementById('confirmSaveModal');
 const importModal = document.getElementById('importModal');
+const txModal = document.getElementById('txModal');
 
 const openAddModal = (defaultTicker = '') => {
   document.getElementById('holdingForm').reset();
@@ -329,11 +460,26 @@ const openAddModal = (defaultTicker = '') => {
 };
 window.openAddHoldingModal = openAddModal;
 
-const closeHoldingModal = () => holdingModal.classList.remove('active');
-const closeConfirmModal = () => confirmSaveModal.classList.remove('active');
-const closeImportModal = () => importModal.classList.remove('active');
+window.openTxModal = (ticker = '') => {
+  if (!txModal) return;
+  document.getElementById('txForm')?.reset();
+  if (ticker) {
+    const input = document.getElementById('txTickerInput');
+    if (input) input.value = ticker;
+  }
+  const dateInput = document.getElementById('txDateInput');
+  if (dateInput) {
+    dateInput.value = new Date().toISOString().substring(0, 10);
+  }
+  txModal.classList.add('active');
+};
 
-document.addEventListener('DOMContentLoaded', () => {
+const closeHoldingModal = () => holdingModal?.classList.remove('active');
+const closeConfirmModal = () => confirmSaveModal?.classList.remove('active');
+const closeImportModal = () => importModal?.classList.remove('active');
+const closeTxModal = () => txModal?.classList.remove('active');
+
+const initPortfolio = () => {
   loadPortfolio();
 
   // Listen for theme changes to redraw canvas chart
@@ -545,4 +691,106 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.textContent = 'Carica e Importa';
     }
   });
-});
+
+  // Trade Ledger Modal & Filter Handlers
+  document.getElementById('btnOpenTxModal')?.addEventListener('click', () => window.openTxModal());
+  document.getElementById('closeTxModal')?.addEventListener('click', closeTxModal);
+  document.getElementById('cancelTxModal')?.addEventListener('click', closeTxModal);
+
+  document.querySelectorAll('.tx-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tx-filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      loadTransactions(btn.dataset.type);
+    });
+  });
+
+  // Tx Autocomplete
+  let txTimeout = null;
+  const txTickerInput = document.getElementById('txTickerInput');
+  const txResultsDiv = document.getElementById('txAutocompleteResults');
+
+  if (txTickerInput && txResultsDiv) {
+    txTickerInput.addEventListener('input', (e) => {
+      clearTimeout(txTimeout);
+      const q = e.target.value.trim();
+      if (q.length < 2) {
+        txResultsDiv.style.display = 'none';
+        return;
+      }
+      txTimeout = setTimeout(async () => {
+        try {
+          const results = await api.searchStocks(q);
+          if (results && results.length > 0) {
+            txResultsDiv.innerHTML = results.map(r => `
+              <div style="padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--border-color); transition: var(--transition);" 
+                   onmouseover="this.style.backgroundColor='var(--surface-hover)'" 
+                   onmouseout="this.style.backgroundColor='transparent'"
+                   onclick="document.getElementById('txTickerInput').value='${r.ticker}';document.getElementById('txAutocompleteResults').style.display='none';">
+                <strong class="text-primary font-mono">${r.ticker}</strong> — <span class="text-secondary">${r.name}</span>
+              </div>
+            `).join('');
+            txResultsDiv.style.display = 'block';
+          } else {
+            txResultsDiv.style.display = 'none';
+          }
+        } catch (e) {
+          txResultsDiv.style.display = 'none';
+        }
+      }, 250);
+    });
+  }
+
+  // Submit Transaction Form
+  document.getElementById('txForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const ticker = document.getElementById('txTickerInput').value.trim().toUpperCase();
+    const type = document.getElementById('txTypeSelect').value;
+    const quantity = parseFloat(document.getElementById('txQtyInput').value) || 0;
+    const price = parseFloat(document.getElementById('txPriceInput').value) || 0;
+    const fee = parseFloat(document.getElementById('txFeeInput').value) || 0;
+    const dateVal = document.getElementById('txDateInput').value;
+    const notes = document.getElementById('txNotesInput').value.trim();
+
+    if (!ticker) {
+      showToast('Inserisci un ticker valido', 'error');
+      return;
+    }
+
+    const data = {
+      ticker,
+      type,
+      quantity,
+      price,
+      fee,
+      transaction_date: dateVal ? new Date(dateVal).toISOString() : null,
+      notes
+    };
+
+    const submitBtn = document.getElementById('btnSubmitTx');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Registrazione...';
+    }
+
+    try {
+      await api.createTransaction(data);
+      showToast(`Transazione ${type} per ${ticker} registrata con successo!`, 'success');
+      closeTxModal();
+      loadPortfolio();
+    } catch (err) {
+      showToast(err.message || 'Errore durante la registrazione della transazione', 'error');
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Registra Transazione';
+      }
+    }
+  });
+};
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initPortfolio);
+} else {
+  initPortfolio();
+}

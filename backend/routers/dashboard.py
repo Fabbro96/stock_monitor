@@ -2,6 +2,7 @@ import asyncio
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 from datetime import datetime, timedelta, timezone
 
 from backend.database import get_db
@@ -17,6 +18,9 @@ from backend.services.analytics import build_portfolio_daily_series
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
+import json
+from backend.models.stock import Stock
+
 @router.get("/")
 async def get_dashboard(db: AsyncSession = Depends(get_db)):
     # 1. Portfolio summary
@@ -24,9 +28,37 @@ async def get_dashboard(db: AsyncSession = Depends(get_db)):
     
     # 2. Recent advices
     advices_result = await db.execute(
-        select(Advice).order_by(Advice.timestamp.desc()).limit(4)
+        select(Advice).options(selectinload(Advice.stock)).order_by(Advice.timestamp.desc()).limit(4)
     )
-    recent_advices = advices_result.scalars().all()
+    recent_advices_rows = advices_result.scalars().all()
+    recent_advices = []
+    for a in recent_advices_rows:
+        try:
+            stocks_analysis = json.loads(a.stocks_json) if a.stocks_json else []
+        except Exception:
+            stocks_analysis = []
+        
+        stock_ticker = a.stock.ticker if a.stock else None
+        stock_name = a.stock.name if a.stock else None
+
+        recent_advices.append({
+            "id": a.id,
+            "market": a.market or "ALL",
+            "title": a.title or ("Borsa Italiana" if a.market == "IT" else "Wall Street"),
+            "action": a.action,
+            "overview": a.overview,
+            "strategy": a.reasoning,
+            "stocks_analysis": stocks_analysis,
+            "risks": a.risks,
+            "confidence": a.confidence,
+            "timeframe": a.timeframe,
+            "targetPrice": a.target_price,
+            "suggestedQuantity": a.suggested_quantity,
+            "ticker": stock_ticker,
+            "name": stock_name,
+            "followed": bool(a.followed),
+            "timestamp": str(a.timestamp) if a.timestamp else str(a.created_at)
+        })
     
     # 3. Active alerts count
     alerts_result = await db.execute(
@@ -88,13 +120,12 @@ async def get_market_heatmap(db: AsyncSession = Depends(get_db)):
     if not stocks:
         return []
 
-    price_tasks = [MarketDataService.fetch_current_price(stock.ticker) for stock in stocks]
-    prices = await asyncio.gather(*price_tasks, return_exceptions=True)
+    tickers = [stock.ticker for stock in stocks]
+    prices_map = await MarketDataService.fetch_batch_prices(tickers)
 
     heatmap_items = []
-    for stock, price_data in zip(stocks, prices):
-        if not isinstance(price_data, dict) or not price_data:
-            continue
+    for stock in stocks:
+        price_data = prices_map.get(stock.ticker) or MarketDataService._generate_fallback_price(stock.ticker)
         heatmap_items.append({
             "ticker": stock.ticker,
             "name": stock.name or stock.ticker,

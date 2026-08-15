@@ -1,7 +1,7 @@
 import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import text
+from sqlalchemy import text, event
 from backend.config import settings
 
 DATABASE_URL = f"sqlite+aiosqlite:///{settings.DB_PATH}"
@@ -13,6 +13,16 @@ engine = create_async_engine(
     connect_args={"timeout": 30},
     pool_pre_ping=True
 )
+
+def _set_sqlite_pragmas(dbapi_connection, connection_record):
+    """Assicura che foreign keys, busy timeout e synchronous siano impostati su ogni connessione SQLite."""
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON;")
+    cursor.execute("PRAGMA busy_timeout=20000;")
+    cursor.execute("PRAGMA synchronous=NORMAL;")
+    cursor.close()
+
+event.listen(engine.sync_engine, "connect", _set_sqlite_pragmas)
 
 async_session_maker = async_sessionmaker(
     engine, class_=AsyncSession, expire_on_commit=False

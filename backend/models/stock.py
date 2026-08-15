@@ -20,6 +20,8 @@ class Stock(Base):
     sentiments = relationship("Sentiment", back_populates="stock", cascade="all, delete-orphan")
     advices = relationship("Advice", back_populates="stock", cascade="all, delete-orphan")
     alerts = relationship("AlertRule", back_populates="stock", cascade="all, delete-orphan")
+    transactions = relationship("Transaction", back_populates="stock", cascade="all, delete-orphan")
+    watchlist_items = relationship("WatchlistItem", back_populates="stock", cascade="all, delete-orphan")
 
 
 class PriceHistory(Base):

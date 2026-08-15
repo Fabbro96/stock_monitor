@@ -48,6 +48,20 @@ async def add_stock(stock: StockCreate, db: AsyncSession = Depends(get_db)):
     market = stock.market
     ticker = stock.ticker.upper().strip()
     
+    # Check if stock already exists in DB
+    result = await db.execute(select(Stock).where(Stock.ticker == ticker))
+    existing = result.scalar_one_or_none()
+    if existing:
+        if not existing.is_active:
+            existing.is_active = True
+        if name and (not existing.name or existing.name == ticker):
+            existing.name = name
+        if market and not existing.market:
+            existing.market = market
+        await db.commit()
+        await db.refresh(existing)
+        return existing
+
     if not name or not market:
         info = await MarketDataService.resolve_stock_info(ticker)
         if not name:

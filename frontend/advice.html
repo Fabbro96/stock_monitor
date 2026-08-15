@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Consigli IA - Stock Monitor</title>
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=2.0.1">
     <script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -30,16 +30,19 @@
                 </div>
                 <div class="flex items-center gap-3 flex-wrap">
                     <div class="flex items-center gap-2 text-xs font-semibold">
-                        <div class="px-2.5 py-1 rounded bg-[rgba(255,255,255,0.04)] border border-border-color flex items-center gap-1.5" title="Borsa Italiana: Lun-Ven 09:00 - 17:30">
+                        <div class="market-pill" title="Borsa Italiana: Lun-Ven 09:00 - 17:30">
                             <span>🇮🇹 Milano:</span>
-                            <span id="marketStatusIT" class="badge badge-hold text-[10px]">Controllo...</span>
+                            <span id="marketStatusIT" class="badge badge-hold text-xs">Controllo...</span>
                         </div>
-                        <div class="px-2.5 py-1 rounded bg-[rgba(255,255,255,0.04)] border border-border-color flex items-center gap-1.5" title="Wall Street: Lun-Ven 15:30 - 22:00 (Ora Italiana)">
+                        <div class="market-pill" title="Wall Street: Lun-Ven 15:30 - 22:00 (Ora Italiana)">
                             <span>🇺🇸 Wall St:</span>
-                            <span id="marketStatusUS" class="badge badge-hold text-[10px]">Controllo...</span>
+                            <span id="marketStatusUS" class="badge badge-hold text-xs">Controllo...</span>
                         </div>
                     </div>
                     <button class="btn btn-primary" id="btnGenerate">Genera Analisi Macro Ora</button>
+                    <button class="theme-toggle-btn" id="btnThemeToggle" onclick="window.toggleTheme()" title="Cambia tema" aria-label="Cambia tema">
+                        <span>🌙</span>
+                    </button>
                 </div>
             </header>
 
@@ -120,7 +123,7 @@
                                 <option value="PRESA_PROFITTO">Presa Profitto / Sell</option>
                             </select>
                         </div>
-                        <div class="form-group mb-0 flex-1 min-w-[200px]">
+                        <div class="form-group mb-0 flex-1" style="min-width: 200px;">
                             <label>🔎 Cerca Ticker nei Blocchi</label>
                             <input type="text" id="filterSearch" placeholder="Es. ENEL, AAPL, NVDA, LDO...">
                         </div>
@@ -137,7 +140,7 @@
         </main>
     </div>
 
-    <script type="module" src="/static/js/app.js"></script>
-    <script type="module" src="/static/js/advice.js"></script>
+    <script type="module" src="/static/js/app.js?v=2.0.1"></script>
+    <script type="module" src="/static/js/advice.js?v=2.0.1"></script>
 </body>
 </html>

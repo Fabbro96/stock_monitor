@@ -16,7 +16,7 @@ class WatchlistItem(Base):
     added_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relationship
-    stock = relationship("Stock", lazy="joined")
+    stock = relationship("Stock", back_populates="watchlist_items")
 
     def to_dict(self) -> dict:
         return {

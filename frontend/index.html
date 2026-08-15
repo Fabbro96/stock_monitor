@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - Stock Monitor</title>
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=2.0.1">
     <script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -30,15 +30,20 @@
                     <button class="mobile-toggle">☰</button>
                     <h1 class="page-title">Dashboard</h1>
                 </div>
-                <div class="market-status flex gap-4" id="marketStatus">
-                    <div class="status-indicator">
-                        <span class="status-dot" id="statusMib"></span>
-                        <span class="text-secondary" style="font-size: 0.85rem;">Borsa Italiana</span>
+                <div class="flex items-center gap-4">
+                    <div class="market-status flex gap-4" id="marketStatus">
+                        <div class="status-indicator">
+                            <span class="status-dot" id="statusMib"></span>
+                            <span class="text-secondary" style="font-size: 0.85rem;">Borsa Italiana</span>
+                        </div>
+                        <div class="status-indicator">
+                            <span class="status-dot" id="statusUs"></span>
+                            <span class="text-secondary" style="font-size: 0.85rem;">Wall Street</span>
+                        </div>
                     </div>
-                    <div class="status-indicator">
-                        <span class="status-dot" id="statusUs"></span>
-                        <span class="text-secondary" style="font-size: 0.85rem;">Wall Street</span>
-                    </div>
+                    <button class="theme-toggle-btn" id="btnThemeToggle" onclick="window.toggleTheme()" title="Cambia tema" aria-label="Cambia tema">
+                        <span>🌙</span>
+                    </button>
                 </div>
             </header>
 
@@ -129,7 +134,7 @@
                 </div>
 
                 <!-- Main Chart & Recent Advice -->
-                <div class="grid gap-4 mb-4" style="display: grid; grid-template-columns: 2fr 1fr;">
+                <div class="dashboard-main-grid mb-4">
                     <!-- Chart -->
                     <div class="card" id="chartCard">
                         <div class="card-header">
@@ -221,7 +226,7 @@
         </main>
     </div>
 
-    <script type="module" src="/static/js/app.js"></script>
-    <script type="module" src="/static/js/dashboard.js"></script>
+    <script type="module" src="/static/js/app.js?v=2.0.1"></script>
+    <script type="module" src="/static/js/dashboard.js?v=2.0.1"></script>
 </body>
 </html>

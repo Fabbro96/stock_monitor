@@ -91,16 +91,16 @@ const renderWatchlist = () => {
         <td class="text-right font-mono text-xs text-profit">${item.dividend_yield ? `${item.dividend_yield.toFixed(2)}%` : '--'}</td>
         <td class="text-center">
           <div class="flex justify-center gap-1.5 flex-wrap">
-            <button class="btn btn-ghost btn-sm" onclick="window.openStockModal('${item.ticker}')" title="Apri Scheda Completa">
+            <button class="btn btn-ghost btn-sm" onclick="window.openStockModal('${item.ticker}')" title="Apri Scheda Completa" aria-label="Analisi e scheda completa per ${item.ticker}">
               🔍
             </button>
-            <button class="btn btn-ghost btn-sm" onclick="window.openEditAlertModal(${item.id}, '${item.ticker}', ${item.alert_above || 'null'}, ${item.alert_below || 'null'})" title="Imposta Alert Prezzo">
+            <button class="btn btn-ghost btn-sm" onclick="window.openEditAlertModal(${item.id}, '${item.ticker}', ${item.alert_above || 'null'}, ${item.alert_below || 'null'})" title="Imposta Alert Prezzo" aria-label="Imposta alert di prezzo per ${item.ticker}">
               🔔
             </button>
-            <button class="btn btn-primary btn-sm" onclick="window.location.href='/static/portfolio.html?add=${encodeURIComponent(item.ticker)}'" title="Aggiungi alle Holding">
+            <button class="btn btn-primary btn-sm" onclick="window.location.href='/static/portfolio.html?add=${encodeURIComponent(item.ticker)}'" title="Aggiungi alle Holding" aria-label="Aggiungi ${item.ticker} al portafoglio">
               💼
             </button>
-            <button class="btn btn-ghost btn-sm text-loss" onclick="window.removeFromWatchlist(${item.id}, '${item.ticker}')" title="Rimuovi dal radar">
+            <button class="btn btn-ghost btn-sm text-loss" onclick="window.removeFromWatchlist(${item.id}, '${item.ticker}')" title="Rimuovi dal radar" aria-label="Rimuovi ${item.ticker} dalla watchlist">
               🗑️
             </button>
           </div>
@@ -181,7 +181,7 @@ const openAddModal = () => {
 };
 const closeAddModal = () => addModal.classList.remove('active');
 
-document.addEventListener('DOMContentLoaded', () => {
+const initWatchlist = () => {
   loadWatchlist();
 
   document.getElementById('btnOpenAddWatchlist')?.addEventListener('click', openAddModal);
@@ -191,7 +191,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('closeEditAlertModal')?.addEventListener('click', closeEditAlertModal);
   document.getElementById('cancelEditAlert')?.addEventListener('click', closeEditAlertModal);
 
-  document.getElementById('watchlistSearch')?.addEventListener('input', renderWatchlist);
+  let searchTimer = null;
+  document.getElementById('watchlistSearch')?.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(renderWatchlist, 250);
+  });
 
   // Form Edit Alert Submit
   document.getElementById('editAlertForm')?.addEventListener('submit', async (e) => {
@@ -275,4 +279,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }, 250);
     });
   }
-});
+};
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initWatchlist);
+} else {
+  initWatchlist();
+}

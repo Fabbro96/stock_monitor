@@ -1,7 +1,7 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, FileResponse
@@ -87,14 +87,23 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Stock Monitor", version="2.0.0", lifespan=lifespan)
 
-# CORS middleware
+# CORS middleware (secure origin regex for local, docker and lan access with credentials)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allow all for local use
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|0\.0\.0\.0)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def add_no_cache_header(request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/static") or request.url.path.endswith(".html") or request.url.path.endswith(".js") or request.url.path.endswith(".css"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 @app.get("/health", tags=["system"])
 async def health():
@@ -128,8 +137,6 @@ app.include_router(advice_router, dependencies=[Depends(get_current_user)])
 app.include_router(settings_router, dependencies=[Depends(get_current_user)])
 app.include_router(watchlist_router, dependencies=[Depends(get_current_user)])
 
-
-
 # Check if frontend exists to mount static files
 frontend_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
 if os.path.exists(frontend_dir):
@@ -143,9 +150,15 @@ async def root():
 
 @app.get("/static/{full_path:path}")
 async def catch_all_static(full_path: str):
-    # For SPA support
-    file_path = os.path.join(frontend_dir, full_path)
-    if os.path.exists(file_path):
+    # Sanitize path to prevent directory traversal
+    safe_path = os.path.normpath(full_path).lstrip("/")
+    file_path = os.path.abspath(os.path.join(frontend_dir, safe_path))
+    
+    # Ensure resolved path is strictly within frontend_dir
+    if not file_path.startswith(os.path.abspath(frontend_dir)):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if os.path.isfile(file_path):
         return FileResponse(file_path)
     # If not found, serve index.html (SPA fallback)
     index_path = os.path.join(frontend_dir, "index.html")

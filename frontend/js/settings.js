@@ -174,7 +174,7 @@ window.deleteUser = async (id, username) => {
   }
 };
 
-document.addEventListener('DOMContentLoaded', () => {
+const initSettings = () => {
   loadSettings();
 
   document.getElementById('reportFreq').addEventListener('change', (e) => {
@@ -321,4 +321,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
-});
+};
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initSettings);
+} else {
+  initSettings();
+}
