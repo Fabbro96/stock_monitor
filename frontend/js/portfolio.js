@@ -229,7 +229,9 @@ export const loadPortfolio = async () => {
     showLoading('portfolioContent');
     summaryData = await api.getPortfolioSummary().catch(() => ({}));
     portfolioData = await api.getPortfolio().catch(() => []);
-
+    // Dispatch event for UI effects (pulse green/red on price updates)
+    const priceEvent = new CustomEvent("portfolio:price:updated");
+    window.dispatchEvent(priceEvent)
     document.getElementById('totalValue').textContent = formatCurrency(summaryData.total_value || 0);
     document.getElementById('totalInvested').textContent = formatCurrency(summaryData.total_invested || 0);
     document.getElementById('totalCount').textContent = summaryData.holdings_count || portfolioData.length;
@@ -653,3 +655,44 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+  // Add breakeven price column and pulse effects
+  const priceHeaders = tbody.querySelectorAll("th");
+  const priceColIndex = Array.from(priceHeaders).findIndex(h => h.textContent.includes("Prezzo"));
+  if (priceColIndex >= 0) {
+    const breakevenHeader = document.createElement("th");
+    breakevenHeader.style.cssText = "width: 120px;";
+    breakevenHeader.textContent = "Prezzo Medio";
+    priceHeaders[priceColIndex + 1].parentNode.insertBefore(breakevenHeader, priceHeaders[priceColIndex + 1].nextSibling);
+  }
+  tbody.querySelectorAll("tr").forEach((row, i) => {
+    const priceCels = row.querySelectorAll("td");
+    if (priceCels && portfolioData[i]) {
+      const breakevenCell = document.createElement("td");
+      breakevenCell.className = "breakeven-price text-right font-mono";
+      breakevenCell.style.cssText = "width: 120px; color: #f59e0b; font-size: 0.85rem";
+      breakevenCell.textContent = formatCurrency(portfolioData[i].avg_purchase_price, portfolioData[i].currency || "EUR");
+      const priceCell = priceCels[6];
+      if (priceCell) {
+        priceCell.parentNode.insertBefore(breakevenCell, priceCell.nextSibling);
+      }
+    }
+  });
+
+  // Pulse effects on price updates
+  const pulsePortfolioPrices = () => {
+    tbody.querySelectorAll(".price-cell").forEach(cell => {
+      const prevVal = cell.dataset.prevPrice;
+      if (prevVal === undefined) {
+        cell.dataset.prevPrice = cell.textContent;
+      }
+      const numericVal = parseFloat(cell.textContent.replace(/[^0-9.-]/g, "")) || 0;
+      if (cell.dataset.pulsing) return;
+      if (numericVal > 0 && numericVal !== parseFloat(cell.dataset.prevPrice)) {
+        cell.classList.add(numericVal > parseFloat(cell.dataset.prevPrice) ? "pulse-green" : "pulse-red");
+        cell.dataset.prevPrice = cell.textContent;
+        setTimeout(() => cell.classList.remove(numericVal > parseFloat(cell.dataset.prevPrice) ? "pulse-green" : "pulse-red"), 400);
+      }
+    });
+  };
+
+  window.addEventListener("portfolio:price:updated", pulsePortfolioPrices);
