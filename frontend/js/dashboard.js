@@ -5,6 +5,27 @@ let chart = null;
 let lineSeries = null;
 let resizeObserver = null;
 let currentChartDays = 30;
+let activeBenchmark = 'none'; // 'none' | '^GSPC' | 'FTSEMIB.MI' | 'both'
+const benchSeriesMap = {};
+const BENCH_COLORS = { '^GSPC': '#10b981', 'FTSEMIB.MI': '#f59e0b' };
+
+// Cache dei valori precedenti per effetti flash green/red sugli stat
+const _prevStatValues = new Map();
+const setStatValue = (el, text, numericVal) => {
+  if (!el) return;
+  if (el.textContent !== text) {
+    el.textContent = text;
+  }
+  if (numericVal !== undefined && !isNaN(numericVal)) {
+    const prev = _prevStatValues.get(el.id);
+    if (prev !== undefined && numericVal !== prev) {
+      el.classList.remove('flash-up', 'flash-down');
+      void el.offsetWidth; // reset animazione
+      el.classList.add(numericVal > prev ? 'flash-up' : 'flash-down');
+    }
+    _prevStatValues.set(el.id, numericVal);
+  }
+};
 
 const initChart = () => {
   const chartContainer = document.getElementById('portfolioChart');
@@ -48,10 +69,23 @@ const initChart = () => {
     crosshairMarkerVisible: true,
   });
 
+  // Serie benchmark (S&P 500 e FTSE MIB), attivate dai chip di confronto
+  for (const [tk, color] of Object.entries(BENCH_COLORS)) {
+    benchSeriesMap[tk] = chart.addLineSeries({
+      color,
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: true,
+      crosshairMarkerVisible: false,
+      visible: false,
+    });
+  }
+
   if (window.ResizeObserver) {
+    if (resizeObserver) { try { resizeObserver.disconnect(); } catch(e){} }
     resizeObserver = new ResizeObserver(entries => {
       for (const entry of entries) {
-        if (entry.contentRect.width > 0) {
+        if (entry.contentRect.width > 0 && chart) {
           chart.applyOptions({
             width: entry.contentRect.width,
             height: chartContainer.clientHeight || 340
@@ -121,7 +155,29 @@ const renderHeatmap = (items) => {
 
 const loadPerformanceChart = async (days = 30) => {
   if (!lineSeries) return;
+  const chartEl = document.getElementById('portfolioChart');
+  if (chartEl) chartEl.classList.add('skeleton');
   try {
+    // 1. Tenta il confronto benchmark (serie normalizzate in crescita %)
+    const bench = await api.getBenchmarks(days).catch(() => null);
+    if (bench && Array.isArray(bench.portfolio) && bench.portfolio.length > 0) {
+      lineSeries.setData(bench.portfolio.map(p => ({ time: p.date, value: p.growth_pct })));
+      for (const [tk, series] of Object.entries(benchSeriesMap)) {
+        const b = bench.benchmarks ? bench.benchmarks[tk] : null;
+        const show = (activeBenchmark === 'both' || activeBenchmark === tk) && b && Array.isArray(b.data) && b.data.length > 0;
+        series.applyOptions({ visible: Boolean(show) });
+        if (show) {
+          series.setData(b.data.map(p => ({ time: p.date, value: p.growth_pct })));
+        } else {
+          series.setData([]);
+        }
+      }
+      chart.timeScale().fitContent();
+      return;
+    }
+
+    // 2. Fallback: valore assoluto del portafoglio (nessun benchmark disponibile)
+    Object.values(benchSeriesMap).forEach(s => { s.applyOptions({ visible: false }); s.setData([]); });
     const performance = await api.getPerformance(days).catch(() => ({ data: [] }));
     if (performance.data && performance.data.length > 0) {
       const chartData = performance.data.map(d => ({ time: d.date, value: d.value }));
@@ -130,6 +186,60 @@ const loadPerformanceChart = async (days = 30) => {
     }
   } catch (e) {
     console.error('Errore storico performance:', e);
+  } finally {
+    if (chartEl) chartEl.classList.remove('skeleton');
+  }
+};
+
+const renderRiskMetrics = (m) => {
+  const row = document.getElementById('riskMetricsRow');
+  if (!row) return;
+  if (!m || !m.days_analyzed || m.days_analyzed < 3) {
+    row.innerHTML = '<div class="text-muted text-xs py-3">Metriche disponibili con almeno 3 giorni di storico portafoglio.</div>';
+    return;
+  }
+  const dd = m.max_drawdown_pct ?? 0;
+  const vol = m.annualized_volatility_pct ?? 0;
+  const sharpe = m.sharpe_ratio ?? 0;
+  const beta = m.weighted_beta ?? 0;
+  const annRet = m.annualized_return_pct ?? 0;
+
+  const sharpeClass = sharpe >= 1 ? 'text-profit' : (sharpe < 0 ? 'text-loss' : 'text-primary');
+  row.innerHTML = `
+    <div class="risk-card scale-in">
+      <div class="risk-label">📉 Max Drawdown</div>
+      <div class="risk-value font-mono text-loss">${dd.toFixed(2)}%</div>
+      <div class="risk-sub">Picco → minimo (${m.days_analyzed}gg)</div>
+    </div>
+    <div class="risk-card scale-in">
+      <div class="risk-label">🌊 Volatilità Ann.</div>
+      <div class="risk-value font-mono text-primary">${vol.toFixed(2)}%</div>
+      <div class="risk-sub">Dev. standard × √252</div>
+    </div>
+    <div class="risk-card scale-in">
+      <div class="risk-label">⚖️ Sharpe Ratio</div>
+      <div class="risk-value font-mono ${sharpeClass}">${sharpe.toFixed(2)}</div>
+      <div class="risk-sub">Rf ${m.risk_free_rate_pct ?? 2}% annuo</div>
+    </div>
+    <div class="risk-card scale-in">
+      <div class="risk-label">🎯 Beta Pesato</div>
+      <div class="risk-value font-mono" style="color: var(--purple-color);">${beta.toFixed(2)}</div>
+      <div class="risk-sub">Sensibilità al mercato</div>
+    </div>
+    <div class="risk-card scale-in">
+      <div class="risk-label">🚀 Rendimento Ann.</div>
+      <div class="risk-value font-mono ${annRet >= 0 ? 'text-profit' : 'text-loss'}">${annRet >= 0 ? '+' : ''}${annRet.toFixed(2)}%</div>
+      <div class="risk-sub">CAGR geometrico</div>
+    </div>
+  `;
+};
+
+const loadRiskMetrics = async () => {
+  try {
+    const metrics = await api.getRiskMetrics(180).catch(() => null);
+    renderRiskMetrics(metrics);
+  } catch (e) {
+    console.error('Errore metriche di rischio:', e);
   }
 };
 
@@ -148,24 +258,26 @@ const loadDashboardData = async (isSilentRefresh = false) => {
 
     const summary = dashData.portfolio_summary || {};
 
-    // 1. Stat Cards
+    // 1. Stat Cards (con flash green/red sui valori variati)
     const totalValEl = document.getElementById('statTotalValue');
-    if (totalValEl) totalValEl.textContent = formatCurrency(summary.total_value || 0);
+    setStatValue(totalValEl, formatCurrency(summary.total_value || 0), summary.total_value || 0);
     
     const dailyEl = document.getElementById('statDailyPnL');
     if (dailyEl) {
       const dPnL = summary.daily_pnl || 0;
       const dPct = summary.daily_pnl_percent || 0;
-      dailyEl.textContent = `${formatCurrency(dPnL)} (${formatPercent(dPct)})`;
-      dailyEl.className = `stat-value font-mono ${dPnL >= 0 ? 'text-profit' : 'text-loss'}`;
+      setStatValue(dailyEl, `${formatCurrency(dPnL)} (${formatPercent(dPct)})`, dPnL);
+      dailyEl.classList.toggle('text-profit', dPnL >= 0);
+      dailyEl.classList.toggle('text-loss', dPnL < 0);
     }
     
     const totalEl = document.getElementById('statTotalPnL');
     if (totalEl) {
       const tPnL = summary.total_pnl || 0;
       const tPct = summary.total_pnl_percent || 0;
-      totalEl.textContent = `${formatCurrency(tPnL)} (${formatPercent(tPct)})`;
-      totalEl.className = `stat-value font-mono ${tPnL >= 0 ? 'text-profit' : 'text-loss'}`;
+      setStatValue(totalEl, `${formatCurrency(tPnL)} (${formatPercent(tPct)})`, tPnL);
+      totalEl.classList.toggle('text-profit', tPnL >= 0);
+      totalEl.classList.toggle('text-loss', tPnL < 0);
     }
 
     // Dividends
@@ -284,6 +396,7 @@ const loadDashboardData = async (isSilentRefresh = false) => {
 document.addEventListener('DOMContentLoaded', () => {
   initChart();
   loadDashboardData();
+  loadRiskMetrics();
   
   // Timeframe selector
   const tfGroup = document.getElementById('dashboardTimeframeGroup');
@@ -293,6 +406,19 @@ document.addEventListener('DOMContentLoaded', () => {
         tfGroup.querySelectorAll('.timeframe-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         currentChartDays = parseInt(btn.dataset.days) || 30;
+        loadPerformanceChart(currentChartDays);
+      });
+    });
+  }
+
+  // Benchmark chips (confronto con S&P 500 / FTSE MIB)
+  const benchChips = document.getElementById('benchmarkChips');
+  if (benchChips) {
+    benchChips.querySelectorAll('.bench-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        benchChips.querySelectorAll('.bench-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        activeBenchmark = chip.dataset.bench || 'none';
         loadPerformanceChart(currentChartDays);
       });
     });

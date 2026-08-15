@@ -111,6 +111,23 @@
                     </div>
                 </div>
 
+                <!-- Risk & Performance Metrics -->
+                <div class="card mb-4 fade-in-up" id="riskMetricsCard">
+                    <div class="card-header" style="margin-bottom: 12px;">
+                        <div>
+                            <h2 class="card-title">🛡️ Metriche di Rischio & Performance</h2>
+                            <p class="text-xs text-muted mt-1">Analisi quantitativa del portafoglio (orizzonte 180 giorni)</p>
+                        </div>
+                    </div>
+                    <div class="risk-grid" id="riskMetricsRow">
+                        <div class="skeleton skeleton-stat"></div>
+                        <div class="skeleton skeleton-stat"></div>
+                        <div class="skeleton skeleton-stat"></div>
+                        <div class="skeleton skeleton-stat"></div>
+                        <div class="skeleton skeleton-stat"></div>
+                    </div>
+                </div>
+
                 <!-- Main Chart & Recent Advice -->
                 <div class="grid gap-4 mb-4" style="display: grid; grid-template-columns: 2fr 1fr;">
                     <!-- Chart -->
@@ -118,7 +135,7 @@
                         <div class="card-header">
                             <div>
                                 <h2 class="card-title">📈 Andamento Storico del Portafoglio</h2>
-                                <p class="text-xs text-muted mt-1">Evoluzione del capitale basata sulle quotazioni storiche effettive</p>
+                                <p class="text-xs text-muted mt-1">Crescita % a confronto con gli indici di mercato</p>
                             </div>
                             <div class="timeframe-group" id="dashboardTimeframeGroup">
                                 <button class="timeframe-btn" data-days="7">7G</button>
@@ -126,6 +143,13 @@
                                 <button class="timeframe-btn" data-days="90">90G</button>
                                 <button class="timeframe-btn" data-days="365">1A</button>
                             </div>
+                        </div>
+                        <div class="chart-toolbar mb-3" id="benchmarkChips">
+                            <span class="text-xs text-muted" style="margin-right: 2px;">Benchmark:</span>
+                            <button class="bench-chip active" data-bench="none"><span class="swatch" style="background:#3b82f6;"></span>Solo Portafoglio</button>
+                            <button class="bench-chip" data-bench="^GSPC"><span class="swatch" style="background:#10b981;"></span>🇺🇸 S&P 500</button>
+                            <button class="bench-chip" data-bench="FTSEMIB.MI"><span class="swatch" style="background:#f59e0b;"></span>🇮🇹 FTSE MIB</button>
+                            <button class="bench-chip" data-bench="both"><span class="swatch" style="background:linear-gradient(90deg,#10b981,#f59e0b);"></span>Entrambi</button>
                         </div>
                         <div id="portfolioChart" style="width: 100%; height: 340px;"></div>
                     </div>

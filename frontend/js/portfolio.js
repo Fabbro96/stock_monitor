@@ -491,3 +491,165 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
+
+// ===========================================================================
+// ⚖️ SMART PORTFOLIO REBALANCER
+// ===========================================================================
+const SCOPE_LABELS = { MARKET: '🌍 Mercato', TICKERS: '🏷 Ticker', CASH: '💵 Cash' };
+
+const loadRebalanceTargets = async () => {
+  const tbody = document.getElementById('targetsTableBody');
+  if (!tbody) return;
+  try {
+    const targets = await api.getRebalanceTargets();
+    if (!targets || targets.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3 text-xs">Nessuna allocazione target definita.</td></tr>';
+      return;
+    }
+    const sumPct = targets.reduce((a, t) => a + (t.target_percent || 0), 0);
+    tbody.innerHTML = targets.map(t => `
+      <tr>
+        <td><span class="font-bold text-primary">${t.name}</span></td>
+        <td class="text-center text-xs text-secondary">${SCOPE_LABELS[t.scope_type] || t.scope_type}${t.scope_value ? `: ${t.scope_value}` : ''}</td>
+        <td class="text-right font-mono font-bold">${Number(t.target_percent).toFixed(1)}%</td>
+        <td class="text-center">
+          <button class="btn btn-ghost btn-sm text-loss" title="Elimina" onclick="window.deleteRebalanceTarget(${t.id})">🗑️</button>
+        </td>
+      </tr>
+    `).join('') + `
+      <tr>
+        <td colspan="2" class="text-right text-xs font-bold ${Math.abs(sumPct - 100) < 0.01 ? 'text-profit' : 'text-warning'}">Somma target:</td>
+        <td class="text-right font-mono font-bold ${Math.abs(sumPct - 100) < 0.01 ? 'text-profit' : 'text-warning'}">${sumPct.toFixed(1)}%</td>
+        <td></td>
+      </tr>
+    `;
+  } catch (e) {
+    console.error('Errore caricamento target:', e);
+  }
+};
+
+window.deleteRebalanceTarget = async (id) => {
+  if (!confirm('Eliminare questa allocazione target?')) return;
+  try {
+    await api.deleteRebalanceTarget(id);
+    showToast('Allocazione eliminata', 'success');
+    loadRebalanceTargets();
+  } catch (e) {
+    showToast(e.message || 'Errore eliminazione target', 'error');
+  }
+};
+
+const renderRebalancePlan = (plan) => {
+  const container = document.getElementById('rebalanceResult');
+  if (!container || !plan) return;
+
+  if (plan.portfolio_empty) {
+    container.innerHTML = '<div class="alert-error text-center py-4 text-xs">Il portafoglio è vuoto: aggiungi posizioni per calcolare il ribilanciamento.</div>';
+    return;
+  }
+
+  const allocRows = (plan.allocations || []).map(a => {
+    const drift = a.drift_pct || 0;
+    const driftClass = Math.abs(drift) < 1 ? 'text-secondary' : (drift > 0 ? 'text-profit' : 'text-loss');
+    return `
+      <tr>
+        <td><span class="font-bold">${a.name}</span></td>
+        <td class="text-right font-mono">${Number(a.current_percent).toFixed(1)}% → <strong>${Number(a.target_percent).toFixed(1)}%</strong></td>
+        <td class="text-right font-mono ${driftClass}">${drift > 0 ? '+' : ''}${drift.toFixed(1)}%</td>
+        <td class="text-right font-mono ${a.delta >= 0 ? 'text-profit' : 'text-loss'}">${a.delta >= 0 ? '+' : ''}${formatCurrency(a.delta)}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const orderRows = (plan.orders || []).map(o => `
+    <tr>
+      <td><span class="badge ${o.side === 'BUY' ? 'badge-buy' : 'badge-sell'}">${o.side === 'BUY' ? '🟢 BUY' : '🔴 SELL'}</span></td>
+      <td><span class="font-bold font-mono">${o.ticker}</span><div class="text-[11px] text-muted">${o.allocation_name}</div></td>
+      <td class="text-right font-mono font-bold">${o.quantity}</td>
+      <td class="text-right font-mono">${formatCurrency(o.estimated_price, o.currency)}</td>
+      <td class="text-right font-mono font-bold ${o.side === 'BUY' ? 'order-side-buy' : 'order-side-sell'}">${formatCurrency(o.estimated_value, o.currency)}</td>
+    </tr>
+  `).join('');
+
+  container.innerHTML = `
+    <div class="mb-3">
+      <div class="flex justify-between text-xs text-secondary mb-2 flex-wrap gap-2">
+        <span>💰 Valore considerato: <strong class="text-primary font-mono">${formatCurrency(plan.total_value)}</strong></span>
+        ${plan.extra_cash > 0 ? `<span>💵 Liquidità extra: <strong class="font-mono">${formatCurrency(plan.extra_cash)}</strong></span>` : ''}
+        <span>🎯 Target coperti: <strong class="font-mono">${plan.targets_sum_percent}%</strong></span>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead><tr><th>Bucket</th><th class="text-right">Attuale → Target</th><th class="text-right">Drift</th><th class="text-right">Delta €</th></tr></thead>
+          <tbody>${allocRows}</tbody>
+        </table>
+      </div>
+    </div>
+    ${plan.orders_count > 0 ? `
+      <div class="text-xs font-bold text-primary mb-2">🧾 Ordini suggeriti (${plan.orders_count}) — Buy ${formatCurrency(plan.total_buy_value)} | Sell ${formatCurrency(plan.total_sell_value)}</div>
+      <div class="table-container">
+        <table>
+          <thead><tr><th>Side</th><th>Titolo</th><th class="text-right">Quantità</th><th class="text-right">Prezzo Stimato</th><th class="text-right">Controvalore</th></tr></thead>
+          <tbody>${orderRows}</tbody>
+        </table>
+      </div>
+      <div class="text-[11px] text-muted mt-2">⚠️ Ordini indicativi calcolati sui prezzi correnti; non costituiscono consulenza finanziaria.</div>
+    ` : '<div class="text-center text-muted text-xs py-3">✅ Portafoglio già allineato ai target: nessun ordine necessario.</div>'}
+  `;
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+  const btnAddTarget = document.getElementById('btnAddTarget');
+  const btnPreview = document.getElementById('btnRebalancePreview');
+  if (!btnAddTarget || !btnPreview) return;
+
+  loadRebalanceTargets();
+
+  const scopeTypeSel = document.getElementById('targetScopeType');
+  const scopeValueInput = document.getElementById('targetScopeValue');
+  scopeTypeSel.addEventListener('change', () => {
+    scopeValueInput.disabled = scopeTypeSel.value === 'CASH';
+    if (scopeTypeSel.value === 'CASH') scopeValueInput.value = '';
+  });
+
+  btnAddTarget.addEventListener('click', async () => {
+    const name = document.getElementById('targetName').value.trim();
+    const pct = parseFloat(document.getElementById('targetPct').value);
+    const scope_type = scopeTypeSel.value;
+    const scope_value = scopeValueInput.value.trim();
+
+    if (!name || isNaN(pct) || pct <= 0 || pct > 100) {
+      showToast('Inserisci nome e percentuale target valida (0-100)', 'error');
+      return;
+    }
+    try {
+      await api.addRebalanceTarget({ name, target_percent: pct, scope_type, scope_value });
+      showToast(`Allocazione "${name}" aggiunta`, 'success');
+      document.getElementById('targetName').value = '';
+      document.getElementById('targetPct').value = '';
+      scopeValueInput.value = '';
+      loadRebalanceTargets();
+    } catch (e) {
+      showToast(e.message || 'Errore salvataggio allocazione', 'error');
+    }
+  });
+
+  btnPreview.addEventListener('click', async () => {
+    const extraCash = parseFloat(document.getElementById('rebalanceCashInput').value) || 0;
+    const container = document.getElementById('rebalanceResult');
+    btnPreview.disabled = true;
+    btnPreview.textContent = 'Calcolo in corso...';
+    if (container) container.classList.add('skeleton');
+    try {
+      const plan = await api.rebalancePreview(extraCash);
+      renderRebalancePlan(plan);
+    } catch (e) {
+      if (container) container.innerHTML = `<div class="alert-error text-center py-4 text-xs">${e.message || 'Errore nel calcolo del piano'}</div>`;
+    } finally {
+      btnPreview.disabled = false;
+      btnPreview.textContent = 'Calcola Ordini ➔';
+      if (container) container.classList.remove('skeleton');
+    }
+  });
+});
+

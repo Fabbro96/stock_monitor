@@ -203,6 +203,61 @@
                         <div id="allocationLegend" class="flex flex-col gap-2 text-xs"></div>
                     </div>
                 </div>
+
+                <!-- ⚖️ Smart Rebalancer -->
+                <div class="card mt-4 fade-in-up" id="rebalancerCard">
+                    <div class="card-header">
+                        <div>
+                            <h2 class="card-title">⚖️ Smart Portfolio Rebalancer</h2>
+                            <p class="text-xs text-muted mt-1">Definisci le allocazioni target (es. 40% US Tech, 30% IT Dividend, 30% Liquidità) e ottieni gli ordini di ribilanciamento suggeriti.</p>
+                        </div>
+                        <div class="flex gap-2 items-center">
+                            <input type="number" id="rebalanceCashInput" min="0" step="100" placeholder="Liquidità extra (€)" style="width: 170px;">
+                            <button class="btn btn-primary btn-sm" id="btnRebalancePreview">Calcola Ordini ➔</button>
+                        </div>
+                    </div>
+
+                    <div class="grid gap-4" style="display: grid; grid-template-columns: 1fr 1.3fr;">
+                        <!-- Target Allocations CRUD -->
+                        <div>
+                            <h4 class="text-sm font-bold mb-3 text-primary">🎯 Allocazioni Target</h4>
+                            <div class="flex gap-2 mb-3 flex-wrap">
+                                <input type="text" id="targetName" placeholder="Nome (es. US Tech)" style="flex:1; min-width: 130px;">
+                                <input type="number" id="targetPct" placeholder="%" min="0" max="100" step="0.5" style="width: 76px;">
+                                <select id="targetScopeType" style="width: 130px;">
+                                    <option value="MARKET">Mercato</option>
+                                    <option value="TICKERS">Ticker</option>
+                                    <option value="CASH">Liquidità</option>
+                                </select>
+                                <input type="text" id="targetScopeValue" placeholder="US / AAPL,MSFT" style="width: 130px;">
+                                <button class="btn btn-ghost btn-sm" id="btnAddTarget" title="Aggiungi">➕</button>
+                            </div>
+                            <div class="table-container">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Bucket</th>
+                                            <th class="text-center">Scope</th>
+                                            <th class="text-right">Target %</th>
+                                            <th class="text-center" style="width: 46px;"></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="targetsTableBody">
+                                        <tr><td colspan="4" class="text-center text-muted py-3 text-xs">Nessuna allocazione target definita.</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Rebalance Plan -->
+                        <div>
+                            <h4 class="text-sm font-bold mb-3 text-primary">📋 Piano di Ribilanciamento</h4>
+                            <div id="rebalanceResult" class="text-xs text-muted py-4 text-center">
+                                Configura le allocazioni target e clicca <strong>"Calcola Ordini"</strong> per generare il piano.
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </main>
     </div>

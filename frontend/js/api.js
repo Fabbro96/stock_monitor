@@ -102,6 +102,8 @@ export const api = {
   // Portfolio
   getPortfolio: () => fetchApi('/portfolio/'),
   getPortfolioSummary: () => fetchApi('/portfolio/summary'),
+  getRiskMetrics: (days = 180) => fetchApi(`/portfolio/risk-metrics?days=${days}`),
+  getBenchmarks: (days = 90, tickers = null) => fetchApi(`/portfolio/benchmarks?days=${days}${tickers ? `&tickers=${encodeURIComponent(tickers)}` : ''}`),
   addHolding: (data) => fetchApi('/portfolio/holdings', { method: 'POST', body: JSON.stringify(data) }),
   updateHolding: (id, data) => fetchApi(`/portfolio/holdings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteHolding: (id) => fetchApi(`/portfolio/holdings/${id}`, { method: 'DELETE' }),
@@ -110,6 +112,15 @@ export const api = {
     body: JSON.stringify({ holdings })
   }),
   exportPortfolioUrl: (format = 'csv') => `${API_BASE}/portfolio/export?format=${format}`,
+
+  // Rebalancer
+  getRebalanceTargets: () => fetchApi('/portfolio/rebalance/targets'),
+  addRebalanceTarget: (data) => fetchApi('/portfolio/rebalance/targets', { method: 'POST', body: JSON.stringify(data) }),
+  deleteRebalanceTarget: (id) => fetchApi(`/portfolio/rebalance/targets/${id}`, { method: 'DELETE' }),
+  rebalancePreview: (extra_cash = 0) => fetchApi('/portfolio/rebalance/preview', {
+    method: 'POST',
+    body: JSON.stringify({ extra_cash })
+  }),
   
   importPortfolio: async (csvFile) => {
     const formData = new FormData();

@@ -6,12 +6,19 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Respons
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-import yfinance as yf
 
 from backend.database import get_db
 from backend.models.portfolio import Holding
 from backend.models.stock import Stock, PriceHistory
-from backend.utils.helpers import calculate_pnl
+from backend.models.target_allocation import TargetAllocation
+from backend.services.market_data import MarketDataService
+from backend.services.portfolio_service import build_portfolio_rows, build_portfolio_summary
+from backend.services.analytics import (
+    compute_risk_metrics,
+    compute_benchmark_comparison,
+    compute_rebalance_plan,
+    BENCHMARKS,
+)
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
@@ -40,98 +47,120 @@ class BatchUpdateRequest(BaseModel):
 
 @router.get("/")
 async def get_portfolio(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Holding).join(Stock).where(Stock.is_active == True))
-    holdings = result.scalars().all()
-    
-    portfolio = []
-    for h in holdings:
-        stock = await db.get(Stock, h.stock_id)
-        if not stock:
-            continue
-            
-        # Get latest price from PriceHistory or fallback to MarketDataService
-        price_result = await db.execute(
-            select(PriceHistory)
-            .where(PriceHistory.stock_id == h.stock_id)
-            .order_by(PriceHistory.timestamp.desc())
-            .limit(1)
-        )
-        latest_price = price_result.scalars().first()
-        current_price = latest_price.close if latest_price and latest_price.close else None
-        
-        if not current_price:
-            price_data = await MarketDataService.fetch_current_price(stock.ticker)
-            current_price = price_data.get("close", h.avg_purchase_price)
-
-        pnl = calculate_pnl(current_price, h.avg_purchase_price, h.quantity)
-        
-        portfolio.append({
-            "id": h.id,
-            "stock_id": h.stock_id,
-            "ticker": stock.ticker,
-            "name": stock.name or stock.ticker,
-            "market": stock.market or ("IT" if stock.ticker.endswith(".MI") else "US"),
-            "currency": stock.currency or ("EUR" if stock.ticker.endswith(".MI") else "USD"),
-            "quantity": h.quantity,
-            "avg_purchase_price": h.avg_purchase_price,
-            "current_price": current_price,
-            "total_value": round(h.quantity * current_price, 2),
-            "total_invested": round(h.quantity * h.avg_purchase_price, 2),
-            "pnl_absolute": pnl["pnl_absolute"],
-            "pnl_percent": pnl["pnl_percent"],
-            "purchase_date": str(h.purchase_date) if h.purchase_date else None,
-            "notes": h.notes or ""
-        })
-        
-    return portfolio
+    """Lista posizioni con prezzi live (fallback DB/cache mai bloccante)."""
+    return await build_portfolio_rows(db)
 
 @router.get("/summary")
 async def get_summary(db: AsyncSession = Depends(get_db)):
-    portfolio = await get_portfolio(db)
-    
-    total_invested = sum(h["quantity"] * h["avg_purchase_price"] for h in portfolio)
-    total_value = sum(h["quantity"] * h["current_price"] for h in portfolio)
-    total_pnl = total_value - total_invested
-    total_pnl_percent = (total_pnl / total_invested * 100) if total_invested > 0 else 0.0
+    return await build_portfolio_summary(db)
 
-    # Top Gainer & Top Loser
-    sorted_by_pnl = sorted(portfolio, key=lambda x: x["pnl_percent"], reverse=True)
-    top_gainer = sorted_by_pnl[0] if sorted_by_pnl and sorted_by_pnl[0]["pnl_percent"] > 0 else None
-    top_loser = sorted_by_pnl[-1] if sorted_by_pnl and sorted_by_pnl[-1]["pnl_percent"] < 0 else None
+@router.get("/risk-metrics")
+async def get_risk_metrics(days: int = Query(180, ge=30, le=3650), db: AsyncSession = Depends(get_db)):
+    """
+    Metriche quantitative di rischio/performance del portafoglio:
+    Max Drawdown, Volatilità annualizzata, Sharpe Ratio, Beta pesato.
+    """
+    return await compute_risk_metrics(db, days=days)
 
-    # Market Allocation Breakdown
-    market_allocation = {"IT": 0.0, "US": 0.0, "EU": 0.0}
-    for h in portfolio:
-        m = (h.get("market") or "US").upper()
-        if m in market_allocation:
-            market_allocation[m] += h["total_value"]
-        else:
-            market_allocation["US"] += h["total_value"]
+@router.get("/benchmarks")
+async def get_benchmark_comparison(
+    days: int = Query(90, ge=7, le=1825),
+    tickers: Optional[str] = Query(None, description="Comma-separated: ^GSPC,FTSEMIB.MI"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Crescita % storica del portafoglio confrontata con gli indici di mercato
+    (default: S&P 500 ^GSPC e FTSE MIB FTSEMIB.MI).
+    """
+    benchmark_list = None
+    if tickers:
+        benchmark_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+        for t in benchmark_list:
+            BENCHMARKS.setdefault(t, {"name": t, "flag": "📊"})
+    return await compute_benchmark_comparison(db, days=days, benchmark_tickers=benchmark_list)
 
-    # Dividend estimation (approx based on deep dive cache or default yield)
-    estimated_annual_dividends = 0.0
-    for h in portfolio:
-        deep = await MarketDataService.fetch_stock_deep_dive(h["ticker"])
-        dy = deep.get("dividend_yield")
-        if dy and dy > 0:
-            estimated_annual_dividends += (h["total_value"] * (dy / 100.0))
-        elif deep.get("dividend_rate"):
-            estimated_annual_dividends += (h["quantity"] * deep["dividend_rate"])
+# ---------------------------------------------------------------------------
+# Rebalancer: Target Allocation CRUD + Preview ordini
+# ---------------------------------------------------------------------------
+class TargetAllocationCreate(BaseModel):
+    name: str
+    target_percent: float
+    scope_type: str = "MARKET"   # MARKET | TICKERS | CASH
+    scope_value: Optional[str] = ""
 
-    estimated_dividend_yield = (estimated_annual_dividends / total_value * 100) if total_value > 0 else 0.0
+class RebalancePreviewRequest(BaseModel):
+    extra_cash: float = 0.0
 
-    return {
-        "total_value": round(total_value, 2),
-        "total_invested": round(total_invested, 2),
-        "total_pnl": round(total_pnl, 2),
-        "total_pnl_percent": round(total_pnl_percent, 2),
-        "holdings_count": len(portfolio),
-        "top_gainer": top_gainer,
-        "top_loser": top_loser,
-        "market_allocation": {k: round(v, 2) for k, v in market_allocation.items()},
-        "estimated_annual_dividends": round(estimated_annual_dividends, 2),
-        "estimated_dividend_yield": round(estimated_dividend_yield, 2)
-    }
+@router.get("/rebalance/targets")
+async def list_targets(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(TargetAllocation).order_by(TargetAllocation.id))
+    targets = result.scalars().all()
+    return [
+        {
+            "id": t.id,
+            "name": t.name,
+            "target_percent": t.target_percent,
+            "scope_type": t.scope_type,
+            "scope_value": t.scope_value or "",
+        }
+        for t in targets
+    ]
+
+@router.post("/rebalance/targets")
+async def create_target(data: TargetAllocationCreate, db: AsyncSession = Depends(get_db)):
+    if not (0.0 <= data.target_percent <= 100.0):
+        raise HTTPException(status_code=400, detail="target_percent deve essere tra 0 e 100.")
+    scope_type = (data.scope_type or "MARKET").upper()
+    if scope_type not in ("MARKET", "TICKERS", "CASH"):
+        raise HTTPException(status_code=400, detail="scope_type deve essere MARKET, TICKERS o CASH.")
+    if scope_type == "MARKET" and not data.scope_value:
+        raise HTTPException(status_code=400, detail="Per scope MARKET indica scope_value (IT, US, EU).")
+
+    target = TargetAllocation(
+        name=data.name.strip(),
+        target_percent=data.target_percent,
+        scope_type=scope_type,
+        scope_value=(data.scope_value or "").strip().upper(),
+    )
+    db.add(target)
+    try:
+        await db.commit()
+        await db.refresh(target)
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"id": target.id, "name": target.name, "target_percent": target.target_percent,
+            "scope_type": target.scope_type, "scope_value": target.scope_value or ""}
+
+@router.delete("/rebalance/targets/{target_id}")
+async def delete_target(target_id: int, db: AsyncSession = Depends(get_db)):
+    target = await db.get(TargetAllocation, target_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="Allocazione target non trovata.")
+    await db.delete(target)
+    await db.commit()
+    return {"status": "success"}
+
+@router.post("/rebalance/preview")
+async def rebalance_preview(data: RebalancePreviewRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Calcola il piano di ribilanciamento: delta per bucket e ordini buy/sell
+    (quantità stimate) necessari per raggiungere le allocazioni target.
+    """
+    result = await db.execute(select(TargetAllocation).order_by(TargetAllocation.id))
+    targets = result.scalars().all()
+    if not targets:
+        raise HTTPException(status_code=400, detail="Nessuna allocazione target configurata.")
+
+    target_dicts = [
+        {"id": t.id, "name": t.name, "target_percent": t.target_percent,
+         "scope_type": t.scope_type, "scope_value": t.scope_value or ""}
+        for t in targets
+    ]
+    portfolio = await build_portfolio_rows(db)
+    plan = compute_rebalance_plan(portfolio, target_dicts, extra_cash=data.extra_cash)
+    plan["portfolio_empty"] = len(portfolio) == 0
+    return plan
 
 
 @router.post("/holdings")
@@ -144,14 +173,12 @@ async def add_holding(holding_data: HoldingCreate, db: AsyncSession = Depends(ge
         result = await db.execute(select(Stock).where(Stock.ticker == ticker))
         stock = result.scalars().first()
         if not stock:
-            # Auto-create stock
-            name = ticker
+            # Auto-create stock (risoluzione nome asincrona e non bloccante)
             market = "IT" if ticker.endswith(".MI") else "US"
-            try:
-                info = yf.Ticker(ticker).info
-                name = info.get("shortName", ticker)
-            except Exception:
-                pass
+            info = await MarketDataService.resolve_stock_info(ticker)
+            name = info.get("name") or ticker
+            if info.get("market"):
+                market = info["market"]
             stock = Stock(ticker=ticker, name=name, market=market, currency="USD" if market == "US" else "EUR")
             db.add(stock)
             await db.commit()
@@ -235,7 +262,7 @@ async def remove_holding(holding_id: int, db: AsyncSession = Depends(get_db)):
     return {"status": "success", "message": "Holding rimossa"}
 
 @router.get("/export")
-async def export_portfolio(format: str = Query("csv", regex="^(csv|json)$"), db: AsyncSession = Depends(get_db)):
+async def export_portfolio(format: str = Query("csv", pattern="^(csv|json)$"), db: AsyncSession = Depends(get_db)):
     """
     Esporta il portafoglio corrente in formato CSV o JSON.
     """

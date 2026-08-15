@@ -7,18 +7,25 @@ Web application self-hosted per il monitoraggio orario di titoli azionari (Borsa
 ## ✨ Funzionalità Principali
 
 - 📊 **Monitoraggio automatico orario** dei mercati finanziari (IT, US, EU).
-- 🧠 **5 Consigli Finanziari Giornalieri** basati su Gemini 3.7 Flash con Target Price, Timeframe e Razionale.
+- 🧠 **Consigli Finanziari AI** basati su Gemini 3.7 Flash con Target Price, Timeframe e Razionale + **Analisi on-demand per singolo ticker**.
 - 💼 **Gestione Portafoglio Completa**:
   - Modifica rapida di quantità e prezzo con ricalcolo P&L istantaneo.
   - Barra di sicurezza e modale con conferma finale prima del salvataggio.
   - Esportazione ed Importazione file CSV con rilevamento automatico colonne.
+- 📊 **Benchmark Comparison**: curva di crescita % del portafoglio a confronto diretto con **S&P 500 (`^GSPC`)** e **FTSE MIB (`FTSEMIB.MI`)** sullo stesso grafico.
+- 🛡️ **Metriche di Rischio Quantitative**: Max Drawdown, Volatilità Annualizzata, **Sharpe Ratio**, **Beta pesato** del portafoglio e Rendimento Annualizzato.
+- ⚖️ **Smart Portfolio Rebalancer**: allocazioni target per mercato/ticker/liquidità (es. 40% US Tech, 30% IT Dividend, 30% Cash) e generazione automatica degli ordini di ribilanciamento (unità in buy/sell).
+- 📈 **Grafici Avanzati** (TradingView Lightweight Charts): toggle **Area vs Candele (OHLC)**, sub-chart **volumi colorati**, linea **Breakeven** (prezzo medio di carico) sulle posizioni in portafoglio.
+- 🎨 **UI Institutional Fintech Dark**: skeleton shimmer, flash `pulse-green/pulse-red` sui prezzi live, drawer mobile con gesture touch e micro-animazioni.
 - 📰 **Motore Notizie & Sentiment Multi-Fonte Zero-Auth** (Yahoo Finance News, Google News RSS, Reddit pubblico).
-- 🔒 **Sicurezza & Autenticazione Solida**:
-  - Sessioni JWT sicure via cookie `HttpOnly`.
-  - Protezione anti brute-force (lockout temporaneo dopo 5 tentativi errati).
-  - Gestione utenti riservata esclusivamente all'amministratore.
-- 📱 **Notifiche Telegram** (opzionali per alert di prezzo e report giornalieri).
-- 🚀 **Deploy NAS a File Singolo**: sul NAS serve solo il file `docker-compose.yml`!
+- 🔒 **Sicurezza & Autenticazione Solida**: JWT via cookie `HttpOnly`, anti brute-force, gestione utenti admin-only.
+- 🤖 **Bot Telegram Interattivo Bidirezionale**:
+  - `/value` ➔ report valore, P&L giornaliero e top movers
+  - `/radar` ➔ watchlist con prezzi live e segnali RSI
+  - `/advice <TICKER>` ➔ analisi AI Gemini on-demand
+- 🛡️ **Resilienza Dati Esterna**: circuit breaker + retry con backoff esponenziale + **fallback sull'ultimo prezzo noto (stale-cache/DB)** quando Yahoo Finance risponde 429/403.
+- 🧵 **SQLite in WAL ad alta concorrenza**: PRAGMA `busy_timeout=10000`, `journal_mode=WAL` e sessioni async isolate per ogni task.
+- 🚀 **Deploy NAS a File Singolo**: sul NAS serve solo il file `docker-compose.nas.yml`!
 
 ---
 
@@ -48,8 +55,11 @@ services:
       - ADMIN_PASSWORD=admin123
       - TELEGRAM_BOT_TOKEN=
       - TELEGRAM_CHAT_ID=
+      - TELEGRAM_BOT_ENABLED=true
+      - RISK_FREE_RATE=0.02
       - DB_PATH=data/stock_monitor.db
       - ALERT_CHECK_INTERVAL_MINUTES=15
+      - LOG_LEVEL=INFO
 ```
 
 ### 2. Avvio
@@ -94,6 +104,16 @@ git push -u origin main
 
 ## 🛠️ Stack Tecnologico
 
-- **Backend**: Python 3.12, FastAPI, SQLAlchemy 2.0 (Async), aiosqlite, APScheduler, yfinance, google-genai (Gemini 3.7 Flash), httpx.
+- **Backend**: Python 3.12, FastAPI, SQLAlchemy 2.0 (Async), aiosqlite, APScheduler, yfinance, google-genai (Gemini 3.7 Flash), httpx, python-telegram-bot.
 - **Frontend**: Vanilla HTML5, CSS3 Glassmorphism Dark Theme, JavaScript ES Modules, TradingView Lightweight Charts.
-- **Database**: SQLite in modalità WAL (Write-Ahead Logging) ad alta concorrenza.
+- **Database**: SQLite in modalità WAL (Write-Ahead Logging) ad alta concorrenza (PRAGMA `busy_timeout=10000`, `synchronous=NORMAL`).
+- **Analytics**: NumPy & Pandas per metriche di rischio, benchmark e ribilanciamento.
+
+## 🧪 Test End-to-End Automatizzati
+
+Suite asincrona completa (83 verifiche) che copre: autenticazione, CRUD portafoglio/watchlist/stocks, metriche di rischio, benchmark, rebalancer, contratti REST (formato frontend e legacy), path di **fallback** per rate-limiting Yahoo (429/403), concorrenza SQLite e integrità WAL/PRAGMA.
+
+```bash
+# Isola un DB temporaneo in /tmp, avvia uvicorn dedicato ed esegue tutte le verifiche
+./venv/bin/python tests/e2e_test.py
+```

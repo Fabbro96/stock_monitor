@@ -110,12 +110,15 @@ export const initTickerMarquee = async () => {
     const indices = await api.getIndices().catch(() => []);
     if (!indices || indices.length === 0) return;
 
+    // Cache prezzi precedenti per flash green/red sul marquee
+    const prevPrices = new Map();
+
     const renderItems = (items) => items.map(idx => {
       const isUp = idx.change_percent >= 0;
       const changeClass = isUp ? 'up' : 'down';
       const sign = isUp ? '+' : '';
       return `
-        <div class="ticker-item" onclick="window.openStockModal && window.openStockModal('${idx.ticker}')">
+        <div class="ticker-item" data-ticker="${idx.ticker}" onclick="window.openStockModal && window.openStockModal('${idx.ticker}')">
           <span>${idx.flag || '📊'}</span>
           <span class="ticker-name">${idx.name}</span>
           <span class="ticker-price">${idx.price}</span>
@@ -124,13 +127,40 @@ export const initTickerMarquee = async () => {
       `;
     }).join('');
 
-    // Duplicate track content for seamless infinite marquee loop
-    tapeContainer.innerHTML = `
-      <div class="ticker-tape-track">
-        ${renderItems(indices)}
-        ${renderItems(indices)}
-      </div>
-    `;
+    const renderTape = () => {
+      // Duplicate track content for seamless infinite marquee loop
+      tapeContainer.innerHTML = `
+        <div class="ticker-tape-track">
+          ${renderItems(indices)}
+          ${renderItems(indices)}
+        </div>
+      `;
+      // Pulse green/red sugli item variati rispetto al refresh precedente
+      tapeContainer.querySelectorAll('.ticker-item').forEach(el => {
+        const tk = el.dataset.ticker;
+        const idx = indices.find(i => i.ticker === tk);
+        if (!idx) return;
+        const prev = prevPrices.get(tk);
+        if (prev !== undefined && Number(idx.price) !== Number(prev)) {
+          el.classList.add(Number(idx.price) > Number(prev) ? 'flash-up' : 'flash-down');
+        }
+        prevPrices.set(tk, Number(idx.price));
+      });
+    };
+
+    renderTape();
+
+    // Refresh periodico del nastro (resiliente: su errore tiene i dati in cache)
+    setInterval(async () => {
+      try {
+        const fresh = await api.getIndices();
+        if (fresh && fresh.length > 0) {
+          indices.length = 0;
+          indices.push(...fresh);
+          renderTape();
+        }
+      } catch (e) { /* silent: marquee resta sui dati noti */ }
+    }, 60000);
   } catch (e) {
     console.debug('Ticker marquee error:', e);
   }
@@ -138,9 +168,42 @@ export const initTickerMarquee = async () => {
 
 // Global Stock Deep Dive Modal
 let modalChart = null;
-let modalAreaSeries = null;
+let modalSeries = null;          // serie prezzo attiva (area oppure candles)
+let modalVolumeSeries = null;    // sub-chart volumi
+let modalBreakevenLine = null;   // linea prezzo medio di carico
 let currentModalTicker = null;
 let currentModalTimeframe = '1m';
+let currentModalChartType = 'area'; // 'area' | 'candles'
+
+// Cache portafoglio (per linea breakeven nel grafico)
+let _portfolioCache = null;
+let _portfolioCacheTs = 0;
+const getPortfolioCache = async (maxAgeMs = 60000) => {
+  const now = Date.now();
+  if (_portfolioCache && now - _portfolioCacheTs < maxAgeMs) return _portfolioCache;
+  try {
+    _portfolioCache = await api.getPortfolio();
+    _portfolioCacheTs = now;
+  } catch (e) {
+    _portfolioCache = _portfolioCache || [];
+  }
+  return _portfolioCache;
+};
+const getBreakevenForTicker = async (ticker) => {
+  const portfolio = await getPortfolioCache();
+  const h = (portfolio || []).find(p => p.ticker === ticker);
+  return h && h.avg_purchase_price > 0 ? h.avg_purchase_price : null;
+};
+
+const destroyModalChart = () => {
+  if (modalChart) {
+    try { modalChart.remove(); } catch(e){}
+    modalChart = null;
+    modalSeries = null;
+    modalVolumeSeries = null;
+    modalBreakevenLine = null;
+  }
+};
 
 const injectStockModalHTML = () => {
   if (document.getElementById('stockDeepDiveModal')) return;
@@ -181,13 +244,19 @@ const injectStockModalHTML = () => {
       <!-- Tab Content: Chart -->
       <div id="tab-chart" class="modal-tab-panel">
         <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
-          <div class="timeframe-group" id="modalTimeframeGroup">
-            <button class="timeframe-btn" data-tf="1d">1G</button>
-            <button class="timeframe-btn" data-tf="1w">1S</button>
-            <button class="timeframe-btn active" data-tf="1m">1M</button>
-            <button class="timeframe-btn" data-tf="6m">6M</button>
-            <button class="timeframe-btn" data-tf="1y">1A</button>
-            <button class="timeframe-btn" data-tf="5y">5A</button>
+          <div class="chart-toolbar">
+            <div class="timeframe-group" id="modalTimeframeGroup">
+              <button class="timeframe-btn" data-tf="1d">1G</button>
+              <button class="timeframe-btn" data-tf="1w">1S</button>
+              <button class="timeframe-btn active" data-tf="1m">1M</button>
+              <button class="timeframe-btn" data-tf="6m">6M</button>
+              <button class="timeframe-btn" data-tf="1y">1A</button>
+              <button class="timeframe-btn" data-tf="5y">5A</button>
+            </div>
+            <div class="chart-toggle-group" id="modalChartTypeGroup" title="Stile grafico">
+              <button class="chart-toggle-btn active" data-ctype="area">〰 Area</button>
+              <button class="chart-toggle-btn" data-ctype="candles">🕯 Candele</button>
+            </div>
           </div>
           <div class="flex gap-2">
             <button class="btn btn-ghost btn-sm" id="btnModalAddWatchlist">⭐ Salva in Watchlist</button>
@@ -312,6 +381,17 @@ const injectStockModalHTML = () => {
     });
   });
 
+  // Toggle stile grafico: Area vs Candele (OHLC) con volumi
+  modalEl.querySelectorAll('.chart-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      modalEl.querySelectorAll('.chart-toggle-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentModalChartType = btn.dataset.ctype;
+      initModalChart();
+      loadModalChart(currentModalTicker, currentModalTimeframe);
+    });
+  });
+
   document.getElementById('btnRunStockAi').addEventListener('click', runModalStockAi);
 
   document.getElementById('btnModalAddWatchlist').addEventListener('click', async () => {
@@ -342,9 +422,9 @@ const initModalChart = () => {
   const container = document.getElementById('stockModalChart');
   if (!container || typeof LightweightCharts === 'undefined') return;
 
-  if (modalChart) {
-    try { modalChart.remove(); } catch(e){}
-  }
+  destroyModalChart();
+
+  const withVolume = currentModalChartType === 'candles';
 
   modalChart = LightweightCharts.createChart(container, {
     layout: {
@@ -358,27 +438,102 @@ const initModalChart = () => {
       horzLines: { color: 'rgba(33, 37, 61, 0.5)' },
     },
     rightPriceScale: { borderVisible: false },
-    timeScale: { borderVisible: false }
+    timeScale: { borderVisible: false },
+    crosshair: {
+      vertLine: { color: '#3b82f6', width: 1, style: 3 },
+      horzLine: { color: '#3b82f6', width: 1, style: 3 }
+    }
   });
 
-  modalAreaSeries = modalChart.addAreaSeries({
-    topColor: 'rgba(59, 130, 246, 0.4)',
-    bottomColor: 'rgba(59, 130, 246, 0.01)',
-    lineColor: '#3b82f6',
-    lineWidth: 2,
-  });
+  if (currentModalChartType === 'candles') {
+    modalSeries = modalChart.addCandlestickSeries({
+      upColor: '#10b981',
+      downColor: '#f43f5e',
+      borderUpColor: '#10b981',
+      borderDownColor: '#f43f5e',
+      wickUpColor: '#10b981',
+      wickDownColor: '#f43f5e',
+      priceScaleId: 'right',
+    });
+    // Sub-chart volumi colorati (verde/rosso in base alla direzione della candela)
+    modalVolumeSeries = modalChart.addHistogramSeries({
+      priceFormat: { type: 'volume' },
+      priceScaleId: 'volume',
+      lastValueVisible: false,
+      priceLineVisible: false,
+    });
+    modalChart.priceScale('volume').applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 },
+    });
+    modalChart.priceScale('right').applyOptions({
+      scaleMargins: { top: 0.08, bottom: 0.25 },
+    });
+  } else {
+    modalSeries = modalChart.addAreaSeries({
+      topColor: 'rgba(59, 130, 246, 0.4)',
+      bottomColor: 'rgba(59, 130, 246, 0.01)',
+      lineColor: '#3b82f6',
+      lineWidth: 2,
+    });
+  }
+
+  // Resize responsivo del grafico modale
+  if (window.ResizeObserver && !container._smResizeObs) {
+    container._smResizeObs = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        if (modalChart && entry.contentRect.width > 0) {
+          modalChart.applyOptions({ width: entry.contentRect.width, height: container.clientHeight || 320 });
+        }
+      }
+    });
+    container._smResizeObs.observe(container);
+  }
 };
 
 const loadModalChart = async (ticker, timeframe = '1m') => {
-  if (!modalAreaSeries || !ticker) return;
+  if (!modalSeries || !ticker) return;
+  const container = document.getElementById('stockModalChart');
+  // Shimmer skeleton durante il fetch
+  if (container) container.classList.add('skeleton');
   try {
     const candles = await api.getStockCandles(ticker, timeframe);
     if (candles && candles.length > 0) {
-      modalAreaSeries.setData(candles.map(c => ({ time: c.time, value: c.close })));
+      if (currentModalChartType === 'candles') {
+        modalSeries.setData(candles.map(c => ({
+          time: c.time, open: c.open, high: c.high, low: c.low, close: c.close
+        })));
+        if (modalVolumeSeries) {
+          modalVolumeSeries.setData(candles.map(c => ({
+            time: c.time,
+            value: c.volume || 0,
+            color: c.close >= c.open ? 'rgba(16, 185, 129, 0.45)' : 'rgba(244, 63, 94, 0.45)'
+          })));
+        }
+      } else {
+        modalSeries.setData(candles.map(c => ({ time: c.time, value: c.close })));
+      }
+
+      // Linea orizzontale tratteggiata: prezzo medio di carico (Breakeven)
+      const breakeven = await getBreakevenForTicker(ticker);
+      if (breakeven) {
+        modalBreakevenLine = modalSeries.createPriceLine({
+          price: breakeven,
+          color: '#f59e0b',
+          lineWidth: 1,
+          lineStyle: LightweightCharts.LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: '⚖ Breakeven',
+        });
+      }
+
       modalChart.timeScale().fitContent();
+    } else if (container) {
+      container.innerHTML = '<div class="text-center text-muted text-xs py-8">Nessun dato disponibile (fonte dati non raggiungibile: verrà mostrato l\'ultimo valore noto al prossimo refresh).</div>';
     }
   } catch (e) {
     console.error('Errore caricamento candele modale:', e);
+  } finally {
+    if (container) container.classList.remove('skeleton');
   }
 };
 
@@ -533,9 +688,40 @@ const initSidebar = () => {
   const toggle = document.querySelector('.mobile-toggle');
   const sidebar = document.querySelector('.sidebar');
   if (toggle && sidebar) {
-    toggle.addEventListener('click', () => {
-      sidebar.classList.toggle('open');
+    // Backdrop per drawer mobile (chiusura con tap esterno)
+    let backdrop = document.querySelector('.sidebar-backdrop');
+    if (!backdrop) {
+      backdrop = document.createElement('div');
+      backdrop.className = 'sidebar-backdrop';
+      document.body.appendChild(backdrop);
+    }
+    const setDrawer = (open) => {
+      sidebar.classList.toggle('open', open);
+      backdrop.classList.toggle('visible', open);
+    };
+    toggle.addEventListener('click', () => setDrawer(!sidebar.classList.contains('open')));
+    backdrop.addEventListener('click', () => setDrawer(false));
+    // Chiusura drawer quando si clicca un link di navigazione (mobile)
+    sidebar.querySelectorAll('.nav-link').forEach(link => {
+      link.addEventListener('click', () => setDrawer(false));
     });
+    // Touch gestures: swipe da bordo sinistro per aprire, swipe a sinistra per chiudere
+    let touchStartX = 0;
+    let touchStartY = 0;
+    document.addEventListener('touchstart', (e) => {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+    document.addEventListener('touchend', (e) => {
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      const dy = e.changedTouches[0].clientY - touchStartY;
+      if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx)) return; // solo swipe orizzontali decisi
+      if (dx > 0 && touchStartX < 32 && !sidebar.classList.contains('open')) {
+        setDrawer(true);   // swipe verso destra dal bordo: apre
+      } else if (dx < 0 && sidebar.classList.contains('open')) {
+        setDrawer(false);  // swipe verso sinistra: chiude
+      }
+    }, { passive: true });
   }
 
   // Add User Footer to Sidebar

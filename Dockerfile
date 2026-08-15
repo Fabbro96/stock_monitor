@@ -23,7 +23,7 @@ EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8000/api/dashboard')" || exit 1
+    CMD python -c "import httpx; r = httpx.get('http://localhost:8000/health', timeout=8); exit(0 if r.status_code == 200 else 1)" || exit 1
 
 # Run the application
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

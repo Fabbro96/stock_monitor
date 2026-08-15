@@ -3,8 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List, Optional
 from pydantic import BaseModel
-from datetime import datetime, timedelta
-import yfinance as yf
+from datetime import datetime, timedelta, timezone
 
 from backend.database import get_db
 from backend.models.stock import Stock, PriceHistory
@@ -50,14 +49,11 @@ async def add_stock(stock: StockCreate, db: AsyncSession = Depends(get_db)):
     ticker = stock.ticker.upper().strip()
     
     if not name or not market:
-        try:
-            info = yf.Ticker(ticker).info
-            if not name:
-                name = info.get('shortName', ticker)
-            if not market:
-                market = 'IT' if ticker.endswith('.MI') else 'US'
-        except Exception:
-            pass
+        info = await MarketDataService.resolve_stock_info(ticker)
+        if not name:
+            name = info.get('name', ticker)
+        if not market:
+            market = info.get('market') or ('IT' if ticker.endswith('.MI') else 'US')
 
     new_stock = Stock(
         ticker=ticker,
@@ -100,7 +96,7 @@ async def get_stock_deep_dive(ticker: str):
     return data
 
 @router.get("/{ticker}/candles")
-async def get_stock_candles(ticker: str, timeframe: str = Query("1m", regex="^(1d|1w|1m|6m|1y|5y)$")):
+async def get_stock_candles(ticker: str, timeframe: str = Query("1m", pattern="^(1d|1w|1m|6m|1y|5y)$")):
     """
     Ritorna serie di candele/prezzi per i grafici TradingView (timeframe: 1d, 1w, 1m, 6m, 1y, 5y).
     """
@@ -113,7 +109,8 @@ async def get_history(
     days: int = Query(7), 
     db: AsyncSession = Depends(get_db)
 ):
-    cutoff = datetime.now() - timedelta(days=days)
+    # Timestamp UTC-aware coerenti con quelli persistiti (evita confronti naive/aware)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     result = await db.execute(
         select(PriceHistory)
         .where(PriceHistory.stock_id == stock_id, PriceHistory.timestamp >= cutoff)

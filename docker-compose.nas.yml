@@ -36,6 +36,11 @@ services:
       # --- Notifiche Telegram (Opzionale) ---
       - TELEGRAM_BOT_TOKEN=
       - TELEGRAM_CHAT_ID=
+      # Bot interattivo bidirezionale (comandi /value /radar /advice)
+      - TELEGRAM_BOT_ENABLED=true
+
+      # --- Analytics & Risk Metrics ---
+      - RISK_FREE_RATE=0.02
 
       # --- Configurazione Generale ---
       - DB_PATH=data/stock_monitor.db

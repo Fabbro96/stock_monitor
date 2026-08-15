@@ -18,20 +18,139 @@ from backend.models.stock import Stock, PriceHistory
 
 logger = logging.getLogger(__name__)
 
-# Custom Session with headers to prevent Yahoo rate-limiting/403
-_yf_session = requests.Session()
-_yf_session.headers.update({
+# ---------------------------------------------------------------------------
+# HTTP Session riutilizzabile con header browser realistici (anti 403/429)
+# ---------------------------------------------------------------------------
+BROWSER_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     'Accept-Language': 'en-US,en;q=0.9,it;q=0.8',
-})
+    'Accept-Encoding': 'gzip, deflate',
+    'Connection': 'keep-alive',
+}
 
-# In-memory caches with TTL
+_yf_session = requests.Session()
+_yf_session.headers.update(BROWSER_HEADERS)
+
+YF_TIMEOUT = 20  # secondi per singola chiamata yfinance
+
+
+def _is_rate_limited_error(exc: Exception) -> bool:
+    """Rileva errori di rate limiting / blocco (429/403) da Yahoo Finance."""
+    msg = str(exc).lower()
+    return (
+        "too many requests" in msg
+        or "rate limit" in msg
+        or "429" in msg
+        or "403" in msg
+        or "unusual activity" in msg
+    )
+
+
+def _safe_float(value, default=None):
+    """
+    Converte in float proteggendo da NaN/inf (Yahoo sotto rate-limit può
+    restituire NaN che romperebbero la serializzazione JSON).
+    """
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return default
+    if np.isnan(f) or np.isinf(f):
+        return default
+    return f
+
+
+def _sync_with_retries(fn, attempts: int = 3, base_delay: float = 1.0, respect_circuit: bool = True):
+    """
+    Esegue una funzione sincrona (yfinance) con retry a backoff esponenziale
+    e jitter in caso di rate limiting. DA ESEGUIRE SOLO IN asyncio.to_thread.
+
+    respect_circuit=True: se il circuit breaker è già aperto (rate limit già
+    rilevato da una chiamata precedente/concorrente), interrompe subito i retry
+    invece di attendere tutti i tentativi -> endpoint sempre reattivi.
+    """
+    last_exc = None
+    for attempt in range(attempts):
+        # Fast-fail se il circuit breaker è già aperto da un'altra chiamata
+        if respect_circuit and attempt > 0 and _circuit_open():
+            logger.debug("Circuit breaker aperto: interruzione retry anticipata.")
+            break
+        try:
+            result = fn()
+            _reset_circuit()
+            return result
+        except Exception as e:
+            last_exc = e
+            if _is_rate_limited_error(e):
+                _trip_circuit()
+                if attempt < attempts - 1:
+                    delay = base_delay * (2 ** attempt) + np.random.uniform(0, 0.5)
+                    logger.warning(
+                        f"Rate limit Yahoo Finance (tentativo {attempt + 1}/{attempts}), "
+                        f"backoff {delay:.1f}s: {e}"
+                    )
+                    time.sleep(delay)
+                    continue
+            break
+    raise last_exc if last_exc else RuntimeError("Errore sconosciuto")
+
+
+async def _to_thread_safe(fn, timeout: float = YF_TIMEOUT):
+    """
+    Wrapper asincrono per chiamate bloccanti: le isola in un thread dedicato
+    con timeout, senza mai bloccare l'event loop di FastAPI.
+    """
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(fn), timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.warning("Timeout chiamata esterna (yfinance/web)")
+        raise TimeoutError("Chiamata dati di mercato in timeout")
+
+# ---------------------------------------------------------------------------
+# Cache in-memory: TTL per dati freschi + cache STALE permanente come
+# fallback quando Yahoo/Gemini rispondono 429/403 (resilienza a cascata).
+# ---------------------------------------------------------------------------
 _PRICE_CACHE: dict[str, tuple[dict, float]] = {}
 _INDICES_CACHE: tuple[list[dict], float] = ([], 0.0)
 _DEEP_DIVE_CACHE: dict[str, tuple[dict, float]] = {}
-CACHE_TTL = 60.0 # 1 minute
-DEEP_CACHE_TTL = 180.0 # 3 minutes
+_CANDLES_CACHE: dict[str, tuple[list, float]] = {}
+_INDEX_HISTORY_CACHE: dict[str, tuple[list, float]] = {}
+CACHE_TTL = 60.0        # 1 minuto
+DEEP_CACHE_TTL = 180.0  # 3 minuti
+CANDLES_CACHE_TTL = 300.0      # 5 minuti
+INDEX_HISTORY_CACHE_TTL = 3600.0  # 1 ora (serie giornaliere)
+
+# Cache "last known good" senza scadenza: ultimo valore valido noto per ticker.
+_LAST_GOOD_PRICE: dict[str, dict] = {}
+_LAST_GOOD_DEEP: dict[str, dict] = {}
+_LAST_GOOD_CANDLES: dict[str, list] = {}
+_LAST_GOOD_INDICES: list[dict] = []
+_LAST_GOOD_INDEX_HISTORY: dict[str, list] = {}
+
+# ---------------------------------------------------------------------------
+# Circuit breaker per rate-limiting persistente (429/403): quando Yahoo è in
+# blocco continuativo, le chiamate live vengono cortocircuitate e si usa
+# subito la cache stale/DB -> UI sempre reattiva.
+# ---------------------------------------------------------------------------
+_CIRCUIT = {"until": 0.0, "cooldown": 60.0}
+
+
+def _circuit_open() -> bool:
+    return time.time() < _CIRCUIT["until"]
+
+
+def _trip_circuit():
+    _CIRCUIT["until"] = time.time() + _CIRCUIT["cooldown"]
+    logger.warning(
+        f"Circuit breaker Yahoo aperto per {_CIRCUIT['cooldown']:.0f}s "
+        f"(rate limit persistente): attivo fallback cache stale."
+    )
+    _CIRCUIT["cooldown"] = min(_CIRCUIT["cooldown"] * 2, 600.0)
+
+
+def _reset_circuit():
+    _CIRCUIT["cooldown"] = 60.0
 
 class MarketDataService:
     MARKET_SUFFIXES = {
@@ -98,14 +217,30 @@ class MarketDataService:
 
     @staticmethod
     async def fetch_current_price(ticker: str) -> dict:
+        """
+        Recupera il prezzo corrente con:
+        1. cache fresca (TTL) -> 2. live con retry/backoff -> 3. cache stale
+        (ultimo valore valido noto, marcato stale=True) -> 4. dict vuoto.
+        """
         now_ts = time.time()
         if ticker in _PRICE_CACHE:
             cached_data, cached_time = _PRICE_CACHE[ticker]
             if now_ts - cached_time < CACHE_TTL:
                 return cached_data
 
+        # Circuit breaker: rate limit persistente -> subito cache stale
+        if _circuit_open():
+            stale = _LAST_GOOD_PRICE.get(ticker)
+            if stale:
+                stale_copy = dict(stale)
+                stale_copy["stale"] = True
+                stale_copy["source"] = "cache"
+                _PRICE_CACHE[ticker] = (stale_copy, now_ts)
+                return stale_copy
+            return {}
+
         def _sync_fetch():
-            try:
+            def _do():
                 stock = yf.Ticker(ticker, session=_yf_session)
                 hist = stock.history(period="2d")
                 if hist.empty:
@@ -125,71 +260,130 @@ class MarketDataService:
                             "change_abs": round(change_abs, 3),
                             "change_percent": round(change_pct, 2)
                         }
-                    return {}
-                
+                    raise ValueError(f"Nessun dato per {ticker}")
+
                 latest = hist.iloc[-1]
                 prev = hist.iloc[-2]['Close'] if len(hist) > 1 else latest['Open']
-                price = float(latest["Close"])
+                price = _safe_float(latest["Close"])
+                if price is None:
+                    raise ValueError(f"Prezzo NaN per {ticker}")
+                prev = _safe_float(prev, default=price)
                 change_abs = price - prev
                 change_pct = (change_abs / prev * 100) if prev else 0.0
 
                 return {
-                    "open": float(latest["Open"]),
-                    "high": float(latest["High"]),
-                    "low": float(latest["Low"]),
+                    "open": _safe_float(latest["Open"], price),
+                    "high": _safe_float(latest["High"], price),
+                    "low": _safe_float(latest["Low"], price),
                     "close": price,
-                    "volume": int(latest["Volume"]),
-                    "previous_close": float(prev),
+                    "volume": int(latest["Volume"]) if _safe_float(latest["Volume"], 0) else 0,
+                    "previous_close": prev,
                     "change_abs": round(change_abs, 3),
                     "change_percent": round(change_pct, 2)
                 }
-            except Exception as e:
-                logger.debug(f"Errore recupero prezzo per {ticker}: {e}")
-                return {}
+            return _sync_with_retries(_do, attempts=3, base_delay=1.0)
 
-        result = await asyncio.to_thread(_sync_fetch)
-        if result:
-            _PRICE_CACHE[ticker] = (result, now_ts)
-        return result
+        try:
+            result = await _to_thread_safe(_sync_fetch)
+            if result:
+                result["stale"] = False
+                result["source"] = "live"
+                result["timestamp"] = datetime.now(timezone.utc).isoformat()
+                _PRICE_CACHE[ticker] = (result, now_ts)
+                _LAST_GOOD_PRICE[ticker] = result
+                return result
+        except Exception as e:
+            logger.warning(f"Errore recupero prezzo live per {ticker}: {e}")
+
+        # FALLBACK: ultimo valore valido noto (cache stale)
+        stale = _LAST_GOOD_PRICE.get(ticker)
+        if stale:
+            stale_copy = dict(stale)
+            stale_copy["stale"] = True
+            stale_copy["source"] = "cache"
+            logger.info(f"Fallback stale-cache per {ticker} (ultimo valore noto)")
+            _PRICE_CACHE[ticker] = (stale_copy, now_ts)
+            return stale_copy
+        return {}
 
     @staticmethod
     async def fetch_market_indices() -> list[dict]:
-        global _INDICES_CACHE
+        global _INDICES_CACHE, _LAST_GOOD_INDICES
         now_ts = time.time()
         cached_data, cached_time = _INDICES_CACHE
         if cached_data and (now_ts - cached_time < CACHE_TTL):
             return cached_data
 
+        # Circuit breaker: rate limit persistente -> subito cache stale
+        if _circuit_open():
+            if cached_data:
+                return cached_data
+            if _LAST_GOOD_INDICES:
+                return [{**item, "stale": True} for item in _LAST_GOOD_INDICES]
+            return []
+
         def _sync_fetch_all_indices():
-            results = []
-            for item in MarketDataService.GLOBAL_INDICES:
-                try:
-                    ticker = item["ticker"]
-                    t = yf.Ticker(ticker, session=_yf_session)
-                    hist = t.history(period="2d")
-                    if not hist.empty:
-                        latest = hist.iloc[-1]
-                        prev = hist.iloc[-2]['Close'] if len(hist) > 1 else latest['Open']
-                        price = float(latest["Close"])
+            def _do():
+                tickers = [item["ticker"] for item in MarketDataService.GLOBAL_INDICES]
+                df = yf.download(
+                    tickers, period="2d", interval="1d", group_by="ticker",
+                    auto_adjust=True, threads=True, progress=False
+                )
+                if df is None or getattr(df, "empty", True):
+                    raise ValueError("Nessun dato indici da Yahoo")
+
+                results = []
+                for item in MarketDataService.GLOBAL_INDICES:
+                    tk = item["ticker"]
+                    try:
+                        ticker_df = df[tk] if len(tickers) > 1 else df
+                        if ticker_df.empty:
+                            continue
+                        latest = ticker_df.iloc[-1]
+                        price = _safe_float(latest["Close"])
+                        if price is None:
+                            continue  # riga NaN sotto rate-limit: skip
+                        prev = _safe_float(
+                            ticker_df.iloc[-2]['Close'] if len(ticker_df) > 1 else latest['Open'],
+                            default=price
+                        )
                         change_abs = price - prev
                         change_pct = (change_abs / prev * 100) if prev else 0.0
                         results.append({
-                            "ticker": ticker,
+                            "ticker": tk,
                             "name": item["name"],
                             "flag": item["flag"],
                             "type": item["type"],
-                            "price": round(price, 4 if "EURUSD" in ticker else 2),
-                            "change_abs": round(change_abs, 4 if "EURUSD" in ticker else 2),
+                            "price": round(price, 4 if "EURUSD" in tk else 2),
+                            "change_abs": round(change_abs, 4 if "EURUSD" in tk else 2),
                             "change_percent": round(change_pct, 2)
                         })
-                except Exception as e:
-                    logger.debug(f"Errore recupero indice {item['ticker']}: {e}")
-            return results
+                    except Exception as e:
+                        logger.debug(f"Errore recupero indice {item['ticker']}: {e}")
+                if not results:
+                    raise ValueError("Dati indici vuoti")
+                return results
+            return _sync_with_retries(_do, attempts=2, base_delay=1.0)
 
-        data = await asyncio.to_thread(_sync_fetch_all_indices)
-        if data:
-            _INDICES_CACHE = (data, now_ts)
-        return data or cached_data
+        try:
+            data = await _to_thread_safe(_sync_fetch_all_indices, timeout=YF_TIMEOUT + 15)
+            if data:
+                _LAST_GOOD_INDICES = data
+                _INDICES_CACHE = (data, now_ts)
+                return data
+        except Exception as e:
+            logger.warning(f"Errore recupero indici globali: {e}")
+
+        # FALLBACK 1: cache TTL scaduta ma popolata
+        if cached_data:
+            return cached_data
+        # FALLBACK 2: ultimi indici validi noti (marcandoli come stale)
+        if _LAST_GOOD_INDICES:
+            stale_results = [{**item, "stale": True} for item in _LAST_GOOD_INDICES]
+            _INDICES_CACHE = (stale_results, now_ts)
+            logger.info("Fallback stale-cache per indici globali")
+            return stale_results
+        return []
 
     @staticmethod
     async def fetch_stock_deep_dive(ticker: str) -> dict:
@@ -200,14 +394,39 @@ class MarketDataService:
             if now_ts - cached_time < DEEP_CACHE_TTL:
                 return cached_data
 
+        # Circuit breaker: rate limit persistente -> subito cache stale
+        if _circuit_open():
+            if ticker_up in _DEEP_DIVE_CACHE:
+                return _DEEP_DIVE_CACHE[ticker_up][0]
+            stale = _LAST_GOOD_DEEP.get(ticker_up)
+            if stale:
+                stale_copy = dict(stale)
+                stale_copy["stale"] = True
+                stale_copy["source"] = "cache"
+                return stale_copy
+            return {
+                "ticker": ticker_up,
+                "name": ticker_up,
+                "current_price": 0.0,
+                "change_abs": 0.0,
+                "change_percent": 0.0,
+                "currency": "EUR" if ticker_up.endswith('.MI') else "USD",
+                "stale": True,
+                "source": "unavailable",
+                "technical": {"rsi_14": 50, "rsi_status": "N/D", "rsi_badge": "badge-hold", "trend": "N/D"}
+            }
+
         def _sync_deep_dive():
             try:
                 stock = yf.Ticker(ticker_up, session=_yf_session)
                 info = {}
                 try:
-                    info = stock.info or {}
-                except Exception:
-                    pass
+                    info = _sync_with_retries(
+                        lambda: (stock.info or {}), attempts=2, base_delay=1.0
+                    )
+                except Exception as e:
+                    logger.debug(f"info() non disponibile per {ticker_up}: {e}")
+                    info = {}
 
                 hist = pd.DataFrame()
                 try:
@@ -231,13 +450,13 @@ class MarketDataService:
 
                 if not hist.empty:
                     closes = hist['Close']
-                    current_price = float(closes.iloc[-1])
-                    day_high = float(hist['High'].iloc[-1])
-                    day_low = float(hist['Low'].iloc[-1])
-                    volume = int(hist['Volume'].iloc[-1])
+                    current_price = _safe_float(closes.iloc[-1], 0.0)
+                    day_high = _safe_float(hist['High'].iloc[-1], current_price)
+                    day_low = _safe_float(hist['Low'].iloc[-1], current_price)
+                    volume = int(_safe_float(hist['Volume'].iloc[-1], 0) or 0)
 
                     if len(closes) > 1:
-                        prev_close = float(closes.iloc[-2])
+                        prev_close = _safe_float(closes.iloc[-2], current_price)
                         change_abs = current_price - prev_close
                         change_percent = (change_abs / prev_close * 100) if prev_close else 0.0
                     else:
@@ -254,19 +473,26 @@ class MarketDataService:
                             rsi_val = round(float(last_rsi), 1)
 
                     if len(closes) >= 20:
-                        sma20_val = round(float(closes.rolling(window=20).mean().iloc[-1]), 2)
+                        v20 = _safe_float(closes.rolling(window=20).mean().iloc[-1])
+                        sma20_val = round(v20, 2) if v20 is not None else None
                     
                     if len(closes) >= 50:
-                        sma50_val = round(float(closes.rolling(window=50).mean().iloc[-1]), 2)
+                        v50 = _safe_float(closes.rolling(window=50).mean().iloc[-1])
+                        sma50_val = round(v50, 2) if v50 is not None else None
 
                 if current_price == 0.0:
-                    current_price = float(info.get('regularMarketPrice') or info.get('currentPrice') or 0.0)
+                    current_price = _safe_float(info.get('regularMarketPrice') or info.get('currentPrice'), 0.0)
 
-                fifty_two_high = float(info.get('fiftyTwoWeekHigh') or day_high or current_price)
-                fifty_two_low = float(info.get('fiftyTwoWeekLow') or day_low or current_price)
+                fifty_two_high = _safe_float(info.get('fiftyTwoWeekHigh'), day_high or current_price)
+                fifty_two_low = _safe_float(info.get('fiftyTwoWeekLow'), day_low or current_price)
                 
                 range_span = fifty_two_high - fifty_two_low
                 range_pct = round(((current_price - fifty_two_low) / range_span * 100), 1) if range_span > 0 else 50.0
+
+                def _fr(key, mult=1):
+                    """Fundamentali arrotondati con protezione NaN."""
+                    v = _safe_float(info.get(key))
+                    return round(v * mult, 2) if v is not None else None
 
                 if rsi_val >= 70:
                     rsi_status = "Ipercomprato (Overbought)"
@@ -296,14 +522,14 @@ class MarketDataService:
                     "day_high": round(day_high, 2),
                     "day_low": round(day_low, 2),
                     "volume": volume,
-                    "avg_volume": int(info.get('averageVolume') or info.get('averageVolume10days') or volume),
-                    "market_cap": info.get('marketCap'),
-                    "pe_ratio": round(float(info.get('trailingPE')), 2) if info.get('trailingPE') else None,
-                    "forward_pe": round(float(info.get('forwardPE')), 2) if info.get('forwardPE') else None,
-                    "eps": round(float(info.get('trailingEps')), 2) if info.get('trailingEps') else None,
-                    "beta": round(float(info.get('beta')), 2) if info.get('beta') else None,
-                    "dividend_yield": round(float(info.get('dividendYield') * 100), 2) if info.get('dividendYield') else (round(float(info.get('trailingAnnualDividendYield') * 100), 2) if info.get('trailingAnnualDividendYield') else None),
-                    "dividend_rate": round(float(info.get('dividendRate')), 2) if info.get('dividendRate') else None,
+                    "avg_volume": int(_safe_float(info.get('averageVolume') or info.get('averageVolume10days'), volume) or volume),
+                    "market_cap": _safe_float(info.get('marketCap')),
+                    "pe_ratio": _fr('trailingPE'),
+                    "forward_pe": _fr('forwardPE'),
+                    "eps": _fr('trailingEps'),
+                    "beta": _fr('beta'),
+                    "dividend_yield": _fr('dividendYield', 100) or _fr('trailingAnnualDividendYield', 100),
+                    "dividend_rate": _fr('dividendRate'),
                     "fifty_two_week_high": fifty_two_high,
                     "fifty_two_week_low": fifty_two_low,
                     "fifty_two_week_pct": range_pct,
@@ -331,10 +557,43 @@ class MarketDataService:
                     "technical": {"rsi_14": 50, "rsi_status": "N/D", "rsi_badge": "badge-hold", "trend": "N/D"}
                 }
 
-        data = await asyncio.to_thread(_sync_deep_dive)
+        data = None
+        try:
+            data = await _to_thread_safe(_sync_deep_dive, timeout=YF_TIMEOUT + 10)
+        except Exception as e:
+            logger.warning(f"Errore deep dive live per {ticker_up}: {e}")
+
         if data and data.get('current_price', 0) > 0:
+            data["stale"] = False
+            data["source"] = "live"
             _DEEP_DIVE_CACHE[ticker_up] = (data, now_ts)
-        return data
+            _LAST_GOOD_DEEP[ticker_up] = data
+            return data
+
+        # FALLBACK 1: cache TTL scaduta ma valida
+        if ticker_up in _DEEP_DIVE_CACHE:
+            return _DEEP_DIVE_CACHE[ticker_up][0]
+        # FALLBACK 2: ultimo deep dive valido noto
+        stale = _LAST_GOOD_DEEP.get(ticker_up)
+        if stale:
+            stale_copy = dict(stale)
+            stale_copy["stale"] = True
+            stale_copy["source"] = "cache"
+            logger.info(f"Fallback stale-cache deep dive per {ticker_up}")
+            _DEEP_DIVE_CACHE[ticker_up] = (stale_copy, now_ts)
+            return stale_copy
+        # FALLBACK 3: skeleton vuoto (non blocca mai il frontend)
+        return data or {
+            "ticker": ticker_up,
+            "name": ticker_up,
+            "current_price": 0.0,
+            "change_abs": 0.0,
+            "change_percent": 0.0,
+            "currency": "EUR" if ticker_up.endswith('.MI') else "USD",
+            "stale": True,
+            "source": "unavailable",
+            "technical": {"rsi_14": 50, "rsi_status": "N/D", "rsi_badge": "badge-hold", "trend": "N/D"}
+        }
 
     @staticmethod
     async def fetch_stock_candles(ticker: str, timeframe: str = "1mo") -> list[dict]:
@@ -348,36 +607,161 @@ class MarketDataService:
             "5y": ("5y", "1wk")
         }
         period, interval = tf_mapping.get(timeframe.lower(), ("1mo", "1d"))
+        cache_key = f"{ticker_up}:{timeframe.lower()}"
+
+        now_ts = time.time()
+        if cache_key in _CANDLES_CACHE:
+            cached_data, cached_time = _CANDLES_CACHE[cache_key]
+            if now_ts - cached_time < CANDLES_CACHE_TTL:
+                return cached_data
+
+        # Circuit breaker: rate limit persistente -> subito cache stale
+        if _circuit_open():
+            if cache_key in _CANDLES_CACHE:
+                return _CANDLES_CACHE[cache_key][0]
+            stale = _LAST_GOOD_CANDLES.get(cache_key)
+            return stale if stale else []
 
         def _sync_candles():
-            try:
+            def _do():
                 stock = yf.Ticker(ticker_up, session=_yf_session)
                 hist = stock.history(period=period, interval=interval)
                 if hist.empty:
-                    return []
-                
+                    raise ValueError(f"Nessuna candela per {ticker_up}")
+
                 results = []
                 for index, row in hist.iterrows():
                     if interval in ["5m", "15m", "30m", "60m", "1h"]:
                         time_val = int(index.timestamp())
                     else:
                         time_val = index.strftime("%Y-%m-%d")
-                    
+
+                    close_v = _safe_float(row["Close"])
+                    if close_v is None:
+                        continue  # candela NaN sotto rate-limit
+
                     results.append({
                         "time": time_val,
-                        "open": round(float(row["Open"]), 2),
-                        "high": round(float(row["High"]), 2),
-                        "low": round(float(row["Low"]), 2),
-                        "close": round(float(row["Close"]), 2),
-                        "value": round(float(row["Close"]), 2),
-                        "volume": int(row.get("Volume", 0))
+                        "open": _safe_float(row["Open"], close_v),
+                        "high": _safe_float(row["High"], close_v),
+                        "low": _safe_float(row["Low"], close_v),
+                        "close": round(close_v, 2),
+                        "value": round(close_v, 2),
+                        "volume": int(_safe_float(row.get("Volume", 0), 0) or 0)
                     })
+                if not results:
+                    raise ValueError(f"Nessuna candela valida per {ticker_up}")
                 return results
-            except Exception as e:
-                logger.debug(f"Errore candele per {ticker_up} ({period}/{interval}): {e}")
-                return []
+            return _sync_with_retries(_do, attempts=2, base_delay=1.0)
 
-        return await asyncio.to_thread(_sync_candles)
+        try:
+            results = await _to_thread_safe(_sync_candles, timeout=YF_TIMEOUT + 10)
+            if results:
+                _CANDLES_CACHE[cache_key] = (results, now_ts)
+                _LAST_GOOD_CANDLES[cache_key] = results
+                return results
+        except Exception as e:
+            logger.warning(f"Errore candele live per {ticker_up} ({period}/{interval}): {e}")
+
+        # FALLBACK: ultime candele valide note
+        stale = _LAST_GOOD_CANDLES.get(cache_key)
+        if stale:
+            logger.info(f"Fallback stale-cache candele per {ticker_up}")
+            _CANDLES_CACHE[cache_key] = (stale, now_ts)
+            return stale
+        return []
+
+    @staticmethod
+    async def fetch_index_history(ticker: str, period: str = "1y") -> list[dict]:
+        """
+        Serie storica giornaliera di un indice (es. ^GSPC, FTSEMIB.MI)
+        per il confronto benchmark. Ritorna [{time, close}] con cache 1h
+        e fallback stale in caso di rate limiting.
+        """
+        now_ts = time.time()
+        cache_key = f"{ticker}:{period}"
+        if cache_key in _INDEX_HISTORY_CACHE:
+            cached_data, cached_time = _INDEX_HISTORY_CACHE[cache_key]
+            if now_ts - cached_time < INDEX_HISTORY_CACHE_TTL:
+                return cached_data
+
+        # Circuit breaker: rate limit persistente -> subito cache stale
+        if _circuit_open():
+            if cache_key in _INDEX_HISTORY_CACHE:
+                return _INDEX_HISTORY_CACHE[cache_key][0]
+            stale = _LAST_GOOD_INDEX_HISTORY.get(cache_key)
+            return stale if stale else []
+
+        def _sync_index_history():
+            def _do():
+                t = yf.Ticker(ticker, session=_yf_session)
+                hist = t.history(period=period, interval="1d")
+                if hist.empty:
+                    raise ValueError(f"Nessuno storico per {ticker}")
+                results = []
+                for index, row in hist.iterrows():
+                    close_v = _safe_float(row["Close"])
+                    if close_v is None:
+                        continue
+                    results.append({
+                        "time": index.strftime("%Y-%m-%d"),
+                        "close": round(close_v, 2)
+                    })
+                if not results:
+                    raise ValueError(f"Nessuno storico valido per {ticker}")
+                return results
+            return _sync_with_retries(_do, attempts=2, base_delay=1.0)
+
+        try:
+            results = await _to_thread_safe(_sync_index_history, timeout=YF_TIMEOUT + 10)
+            if results:
+                _INDEX_HISTORY_CACHE[cache_key] = (results, now_ts)
+                _LAST_GOOD_INDEX_HISTORY[cache_key] = results
+                return results
+        except Exception as e:
+            logger.warning(f"Errore storico indice {ticker}: {e}")
+
+        stale = _LAST_GOOD_INDEX_HISTORY.get(cache_key)
+        if stale:
+            logger.info(f"Fallback stale-cache storico indice {ticker}")
+            _INDEX_HISTORY_CACHE[cache_key] = (stale, now_ts)
+            return stale
+        return []
+
+    @staticmethod
+    async def resolve_stock_info(ticker: str) -> dict:
+        """
+        Risoluzione asincrona non bloccante di nome/mercato di un ticker
+        (sostituisce le chiamate sincrone yf.Ticker().info dentro gli endpoint).
+        Non solleva mai eccezioni: ritorna {} in caso di errore.
+        """
+        ticker_up = ticker.strip().upper()
+
+        if _circuit_open():
+            return {}
+
+        def _sync():
+            def _do():
+                stock = yf.Ticker(ticker_up, session=_yf_session)
+                info = stock.info or {}
+                name = info.get("shortName") or info.get("longName")
+                if not name:
+                    raise ValueError("Nome non disponibile")
+                return {
+                    "ticker": ticker_up,
+                    "name": name,
+                    "market": "IT" if ticker_up.endswith(".MI") else (
+                        "EU" if any(ticker_up.endswith(s) for s in ['.DE', '.AS', '.PA']) else "US"
+                    ),
+                    "currency": info.get('currency', 'EUR' if ticker_up.endswith('.MI') else 'USD')
+                }
+            return _sync_with_retries(_do, attempts=2, base_delay=1.0)
+
+        try:
+            return await _to_thread_safe(_sync)
+        except Exception as e:
+            logger.debug(f"resolve_stock_info fallita per {ticker_up}: {e}")
+            return {}
 
     @staticmethod
     async def calculate_portfolio_history(holdings: list[dict], days: int = 30) -> list[dict]:
@@ -387,14 +771,30 @@ class MarketDataService:
 
         period = f"{days}d" if days <= 60 else ("3mo" if days <= 90 else ("1y" if days <= 365 else "5y"))
 
+        def _flat_fallback(reason: str = "") -> list[dict]:
+            current_total = sum(
+                h.get("current_price", h.get("avg_purchase_price", 0)) * h["quantity"]
+                for h in holdings
+            )
+            cutoff_fb = datetime.now(timezone.utc) - timedelta(days=days)
+            return [{
+                "date": (cutoff_fb + timedelta(days=i)).strftime("%Y-%m-%d"),
+                "value": round(current_total, 2)
+            } for i in range(days)]
+
+        # Circuit breaker: rate limit persistente -> subito fallback flat
+        if _circuit_open():
+            logger.info("Circuit breaker attivo: storico portafoglio in fallback flat.")
+            return _flat_fallback()
+
         def _sync_portfolio_history():
-            try:
+            def _do():
                 tickers = [h["ticker"] for h in holdings]
                 qty_map = {h["ticker"]: h["quantity"] for h in holdings}
-                
+
                 df = yf.download(tickers, period=period, interval="1d", progress=False, group_by='ticker', auto_adjust=True, session=_yf_session)
-                
-                if df.empty:
+
+                if df is None or df.empty:
                     raise ValueError("Empty historical data")
 
                 history_points = []
@@ -431,13 +831,13 @@ class MarketDataService:
                 if history_points:
                     return history_points[-days:] if len(history_points) > days else history_points
                 raise ValueError("No points generated")
+
+            try:
+                return _sync_with_retries(_do, attempts=2, base_delay=1.0)
             except Exception as e:
-                current_total = sum(h.get("current_price", h.get("avg_purchase_price", 0)) * h["quantity"] for h in holdings)
-                cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-                return [{
-                    "date": (cutoff + timedelta(days=i)).strftime("%Y-%m-%d"),
-                    "value": round(current_total * (1 + (i - days) * 0.002), 2)
-                } for i in range(days)]
+                # FALLBACK: serie piatta sul controvalore attuale (nessun dato inventato)
+                logger.warning(f"Storico portafoglio non disponibile, uso fallback flat: {e}")
+                return _flat_fallback()
 
         return await asyncio.to_thread(_sync_portfolio_history)
 
@@ -455,7 +855,8 @@ class MarketDataService:
         now_utc = datetime.now(timezone.utc)
 
         for stock, price_data in zip(stocks, prices):
-            if isinstance(price_data, dict) and price_data.get('close'):
+            # I dati 'stale' (fallback cache) NON vanno persistiti come nuovo storico
+            if isinstance(price_data, dict) and price_data.get('close') and not price_data.get('stale'):
                 history_entry = PriceHistory(
                     stock_id=stock.id,
                     timestamp=now_utc,
@@ -468,23 +869,30 @@ class MarketDataService:
                 db_session.add(history_entry)
                 saved_prices.append(history_entry)
 
-        await db_session.commit()
+        try:
+            await db_session.commit()
+        except Exception as e:
+            await db_session.rollback()
+            logger.error(f"Errore commit prezzi (rollback eseguito): {e}")
+            return []
         return saved_prices
 
     @staticmethod
     async def search_ticker(query: str) -> list:
         def _sync_search():
-            try:
+            def _do():
                 stock = yf.Ticker(query, session=_yf_session)
                 info = stock.info or {}
                 name = info.get("shortName") or info.get("longName")
-                if name:
-                    return [{
-                        "ticker": query.upper(),
-                        "name": name,
-                        "market": "IT" if query.upper().endswith(".MI") else "US"
-                    }]
-                return []
+                if not name:
+                    raise ValueError("Ticker non trovato")
+                return [{
+                    "ticker": query.upper(),
+                    "name": name,
+                    "market": "IT" if query.upper().endswith(".MI") else "US"
+                }]
+            try:
+                return _sync_with_retries(_do, attempts=2, base_delay=1.0)
             except Exception:
                 return []
 

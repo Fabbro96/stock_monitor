@@ -1,10 +1,10 @@
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
-import yfinance as yf
 
 from backend.database import get_db
 from backend.models.watchlist import WatchlistItem
@@ -23,40 +23,57 @@ async def get_watchlist(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(WatchlistItem).join(Stock))
     items = result.scalars().all()
 
+    if not items:
+        return []
+
+    # Pre-fetch parallelo di stock e stato portfolio (sessione unica, nessuna condivisione cross-task)
+    stock_ids = [item.stock_id for item in items]
+    stocks_result = await db.execute(select(Stock).where(Stock.id.in_(stock_ids)))
+    stocks_map = {s.id: s for s in stocks_result.scalars().all()}
+
+    holdings_result = await db.execute(select(Holding.stock_id).where(Holding.stock_id.in_(stock_ids)))
+    in_portfolio_ids = {row[0] for row in holdings_result.all()}
+
+    # Deep-dive in parallelo: ogni chiamata è isolata in thread con retry/fallback
+    deep_tasks = [
+        MarketDataService.fetch_stock_deep_dive(stocks_map[item.stock_id].ticker)
+        for item in items if item.stock_id in stocks_map
+    ]
+    deep_results = await asyncio.gather(*deep_tasks, return_exceptions=True)
+
     watchlist = []
+    deep_iter = iter(deep_results)
     for item in items:
-        stock = await db.get(Stock, item.stock_id)
+        stock = stocks_map.get(item.stock_id)
         if not stock:
             continue
 
-        deep_data = await MarketDataService.fetch_stock_deep_dive(stock.ticker)
-
-        # Check if already in portfolio
-        h_res = await db.execute(select(Holding).where(Holding.stock_id == stock.id))
-        is_in_portfolio = h_res.scalars().first() is not None
+        deep = next(deep_iter)
+        if not isinstance(deep, dict):
+            deep = {}
 
         watchlist.append({
             "id": item.id,
             "stock_id": stock.id,
             "ticker": stock.ticker,
-            "name": stock.name or deep_data.get("name", stock.ticker),
-            "market": stock.market or deep_data.get("market", "US"),
-            "currency": stock.currency or deep_data.get("currency", "USD"),
-            "current_price": deep_data.get("current_price", 0.0),
-            "change_abs": deep_data.get("change_abs", 0.0),
-            "change_percent": deep_data.get("change_percent", 0.0),
-            "day_high": deep_data.get("day_high", 0.0),
-            "day_low": deep_data.get("day_low", 0.0),
-            "fifty_two_week_high": deep_data.get("fifty_two_week_high", 0.0),
-            "fifty_two_week_low": deep_data.get("fifty_two_week_low", 0.0),
-            "fifty_two_week_pct": deep_data.get("fifty_two_week_pct", 50.0),
-            "pe_ratio": deep_data.get("pe_ratio"),
-            "dividend_yield": deep_data.get("dividend_yield"),
-            "rsi": deep_data.get("technical", {}).get("rsi_14", 50.0),
-            "rsi_status": deep_data.get("technical", {}).get("rsi_status", "Neutro"),
-            "rsi_badge": deep_data.get("technical", {}).get("rsi_badge", "badge-hold"),
+            "name": stock.name or deep.get("name", stock.ticker),
+            "market": stock.market or deep.get("market", "US"),
+            "currency": stock.currency or deep.get("currency", "USD"),
+            "current_price": deep.get("current_price", 0.0),
+            "change_abs": deep.get("change_abs", 0.0),
+            "change_percent": deep.get("change_percent", 0.0),
+            "day_high": deep.get("day_high", 0.0),
+            "day_low": deep.get("day_low", 0.0),
+            "fifty_two_week_high": deep.get("fifty_two_week_high", 0.0),
+            "fifty_two_week_low": deep.get("fifty_two_week_low", 0.0),
+            "fifty_two_week_pct": deep.get("fifty_two_week_pct", 50.0),
+            "pe_ratio": deep.get("pe_ratio"),
+            "dividend_yield": deep.get("dividend_yield"),
+            "rsi": deep.get("technical", {}).get("rsi_14", 50.0),
+            "rsi_status": deep.get("technical", {}).get("rsi_status", "Neutro"),
+            "rsi_badge": deep.get("technical", {}).get("rsi_badge", "badge-hold"),
             "notes": item.notes or "",
-            "is_in_portfolio": is_in_portfolio,
+            "is_in_portfolio": stock.id in in_portfolio_ids,
             "added_at": str(item.added_at) if item.added_at else None
         })
 
@@ -73,12 +90,10 @@ async def add_to_watchlist(data: WatchlistAddRequest, db: AsyncSession = Depends
     stock = result.scalars().first()
     if not stock:
         market = "IT" if ticker.endswith(".MI") else "US"
-        name = ticker
-        try:
-            info = yf.Ticker(ticker).info
-            name = info.get("shortName", ticker)
-        except Exception:
-            pass
+        info = await MarketDataService.resolve_stock_info(ticker)
+        name = info.get("name") or ticker
+        if info.get("market"):
+            market = info["market"]
         stock = Stock(ticker=ticker, name=name, market=market, currency="USD" if market == "US" else "EUR")
         db.add(stock)
         await db.commit()

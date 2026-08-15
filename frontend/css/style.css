@@ -942,6 +942,165 @@ input:focus, select:focus, textarea:focus {
   to { transform: rotate(360deg); }
 }
 
+/* ============================================================
+   MICRO-INTERAZIONI & ANIMAZIONI (Institutional Fintech)
+   ============================================================ */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.fade-in-up { animation: fadeInUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.fade-in { animation: fadeIn 0.4s ease both; }
+.slide-in-right { animation: slideInRight 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.scale-in { animation: scaleIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Stagger entrance per card/row lists */
+.stagger > * { animation: fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.stagger > *:nth-child(1) { animation-delay: 0.02s; }
+.stagger > *:nth-child(2) { animation-delay: 0.06s; }
+.stagger > *:nth-child(3) { animation-delay: 0.10s; }
+.stagger > *:nth-child(4) { animation-delay: 0.14s; }
+.stagger > *:nth-child(5) { animation-delay: 0.18s; }
+.stagger > *:nth-child(6) { animation-delay: 0.22s; }
+.stagger > *:nth-child(7) { animation-delay: 0.26s; }
+.stagger > *:nth-child(8) { animation-delay: 0.30s; }
+
+/* ============================================================
+   PRICE FLASH (pulse green/red su tick e aggiornamenti live)
+   ============================================================ */
+@keyframes flashGreen {
+  0% { background-color: rgba(16, 185, 129, 0.38); box-shadow: 0 0 14px rgba(16,185,129,0.35); }
+  100% { background-color: transparent; box-shadow: none; }
+}
+@keyframes flashRed {
+  0% { background-color: rgba(244, 63, 94, 0.38); box-shadow: 0 0 14px rgba(244,63,94,0.35); }
+  100% { background-color: transparent; box-shadow: none; }
+}
+.pulse-green, .flash-up { animation: flashGreen 1.1s ease-out; border-radius: 6px; }
+.pulse-red, .flash-down { animation: flashRed 1.1s ease-out; border-radius: 6px; }
+
+/* Dot live "breathing" per prezzi realtime */
+@keyframes livePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.82); }
+}
+.live-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--success-color); margin-right: 6px;
+  animation: livePulse 1.6s ease-in-out infinite;
+  box-shadow: 0 0 6px var(--success-glow);
+}
+
+/* ============================================================
+   SKELETON SHIMMER LOADERS
+   ============================================================ */
+@keyframes shimmer {
+  0% { background-position: -450px 0; }
+  100% { background-position: 450px 0; }
+}
+.skeleton {
+  position: relative; overflow: hidden;
+  background: rgba(255,255,255,0.05);
+  border-radius: 8px;
+}
+.skeleton::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  background-size: 450px 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+.skeleton-line { height: 12px; margin-bottom: 10px; }
+.skeleton-line.w-40 { width: 40%; }
+.skeleton-line.w-60 { width: 60%; }
+.skeleton-line.w-80 { width: 80%; }
+.skeleton-stat { height: 40px; }
+.skeleton-chart { height: 300px; }
+.skeleton-row { height: 52px; margin-bottom: 8px; }
+
+/* ============================================================
+   CHART TOOLBAR & TOGGLE (Area vs Candlestick)
+   ============================================================ */
+.chart-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.chart-toggle-group {
+  display: inline-flex; background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border-color); border-radius: var(--radius-pill);
+  padding: 2px; gap: 2px;
+}
+.chart-toggle-btn {
+  background: none; border: none; color: var(--text-secondary);
+  font-size: 0.78rem; font-weight: 600; padding: 4px 12px;
+  border-radius: var(--radius-pill); cursor: pointer; transition: var(--transition);
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.chart-toggle-btn:hover { color: #fff; background: var(--surface-hover); }
+.chart-toggle-btn.active {
+  background: var(--cyan-color); color: #031014;
+  box-shadow: 0 1px 6px var(--cyan-glow);
+}
+
+/* Benchmark chips */
+.bench-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 12px; border-radius: var(--radius-pill);
+  border: 1px solid var(--border-color); background: rgba(255,255,255,0.03);
+  color: var(--text-secondary); font-size: 0.78rem; font-weight: 600;
+  cursor: pointer; transition: var(--transition); user-select: none;
+}
+.bench-chip:hover { border-color: var(--primary-color); color: var(--text-primary); }
+.bench-chip.active {
+  border-color: var(--primary-color); background: rgba(59,130,246,0.12);
+  color: var(--text-primary); box-shadow: 0 0 10px -2px var(--primary-glow);
+}
+.bench-chip .swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+
+/* ============================================================
+   RISK METRICS CARDS
+   ============================================================ */
+.risk-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.risk-card {
+  background: var(--surface-card); border: 1px solid var(--border-color);
+  border-radius: var(--radius-card); padding: 14px 16px;
+  backdrop-filter: blur(8px); transition: var(--transition);
+  position: relative; overflow: hidden;
+}
+.risk-card:hover { transform: translateY(-2px); border-color: var(--border-focus); box-shadow: var(--shadow-glow); }
+.risk-card .risk-label {
+  font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;
+  letter-spacing: 0.04em; font-weight: 600; display: flex; align-items: center; gap: 6px;
+}
+.risk-card .risk-value { font-size: 1.5rem; font-weight: 700; margin-top: 6px; }
+.risk-card .risk-sub { font-size: 0.72rem; color: var(--text-secondary); margin-top: 3px; }
+
+/* ============================================================
+   REBALANCER
+   ============================================================ */
+.order-side-buy { color: var(--success-color); font-weight: 700; }
+.order-side-sell { color: var(--danger-color); font-weight: 700; }
+.drift-badge { padding: 3px 8px; border-radius: var(--radius-pill); font-size: 0.72rem; font-weight: 700; }
+
+/* ============================================================
+   MOBILE DRAWER BACKDROP & TOUCH
+   ============================================================ */
+.sidebar-backdrop {
+  position: fixed; inset: 0; background: rgba(4, 6, 12, 0.62);
+  backdrop-filter: blur(3px); z-index: 95; opacity: 0;
+  pointer-events: none; transition: opacity 0.25s ease;
+}
+.sidebar-backdrop.visible { opacity: 1; pointer-events: auto; }
+
 /* Responsive */
 @media (max-width: 900px) {
   .sidebar {

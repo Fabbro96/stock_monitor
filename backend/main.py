@@ -14,6 +14,7 @@ from backend.services.scheduler import init_scheduler, shutdown_scheduler
 from backend.models.settings import UserSettings
 from backend.models.user import User
 from backend.services.auth import get_current_user, hash_password
+from backend.services.telegram_bot import InteractiveTelegramBot
 from backend.routers import (
     stocks_router,
     portfolio_router,
@@ -28,13 +29,19 @@ from backend.routers import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+# Istanza singleton del bot interattivo (gestita dal lifespan)
+telegram_bot = InteractiveTelegramBot()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting up Stock Monitor...")
     
-    # Ensure data directory exists
+    # Ensure data directory exists (deriva dalla path del DB per robustezza)
     os.makedirs("data", exist_ok=True)
+    db_dir = os.path.dirname(os.path.abspath(settings.DB_PATH))
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
     
     # Initialize DB
     await init_db()
@@ -67,14 +74,18 @@ async def lifespan(app: FastAPI):
     
     # Initialize Scheduler
     init_scheduler(app)
+
+    # Avvia bot Telegram interattivo bidirezionale (se configurato)
+    await telegram_bot.start()
     
     yield
     
     # Shutdown
     logger.info("Shutting down Stock Monitor...")
+    await telegram_bot.stop()
     shutdown_scheduler()
 
-app = FastAPI(title="Stock Monitor", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Stock Monitor", version="2.0.0", lifespan=lifespan)
 
 # CORS middleware
 app.add_middleware(
@@ -84,6 +95,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/health", tags=["system"])
+async def health():
+    """
+    Health check pubblico (non protetto) per Docker/Kubernetes.
+    Verifica anche la raggiungibilità del database.
+    """
+    db_ok = True
+    try:
+        async with async_session_maker() as session:
+            from sqlalchemy import text
+            await session.execute(text("SELECT 1"))
+    except Exception as e:
+        logger.error(f"Health check DB fallito: {e}")
+        db_ok = False
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "database": "ok" if db_ok else "error",
+        "telegram_bot_active": telegram_bot.application is not None,
+        "version": app.version,
+    }
 
 # Public Auth router
 app.include_router(auth_router)

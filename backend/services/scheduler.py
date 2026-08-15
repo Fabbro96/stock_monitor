@@ -132,5 +132,6 @@ def init_scheduler(app):
 
 def shutdown_scheduler():
     if scheduler.running:
-        scheduler.shutdown()
+        # wait=False: non bloccare lo shutdown del lifespan se un job è in corso
+        scheduler.shutdown(wait=False)
         logger.info("Scheduler terminato correttamente.")
