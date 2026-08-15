@@ -402,3 +402,80 @@ async def import_holdings(file: UploadFile = File(...), db: AsyncSession = Depen
         "updated": updated,
         "errors": errors
     }
+
+@router.post("/seed-demo")
+async def seed_demo_data(db: AsyncSession = Depends(get_db)):
+    """
+    Inizializza posizioni demo bilanciate (Italia + USA) per un'esperienza immediata.
+    """
+    from backend.models.watchlist import WatchlistItem
+
+    demo_holdings = [
+        {"ticker": "ENEL.MI", "name": "Enel S.p.A.", "market": "IT", "currency": "EUR", "qty": 400, "price": 6.20, "notes": "Dividendo Core"},
+        {"ticker": "ISP.MI", "name": "Intesa Sanpaolo", "market": "IT", "currency": "EUR", "qty": 800, "price": 3.15, "notes": "Settore Bancario"},
+        {"ticker": "RACE.MI", "name": "Ferrari N.V.", "market": "IT", "currency": "EUR", "qty": 8, "price": 380.0, "notes": "Luxury Growth"},
+        {"ticker": "AAPL", "name": "Apple Inc.", "market": "US", "currency": "USD", "qty": 15, "price": 195.0, "notes": "Big Tech"},
+        {"ticker": "NVDA", "name": "NVIDIA Corporation", "market": "US", "currency": "USD", "qty": 20, "price": 118.0, "notes": "AI Leader"},
+        {"ticker": "MSFT", "name": "Microsoft Corporation", "market": "US", "currency": "USD", "qty": 8, "price": 390.0, "notes": "Cloud & AI Enterprise"},
+    ]
+
+    demo_watchlist = [
+        {"ticker": "LDO.MI", "name": "Leonardo S.p.A.", "market": "IT", "currency": "EUR", "alert_above": 26.0, "alert_below": 22.0, "notes": "Target breakout"},
+        {"ticker": "G.MI", "name": "Assicurazioni Generali", "market": "IT", "currency": "EUR", "alert_above": 28.0, "alert_below": 24.5, "notes": "High yield"},
+        {"ticker": "AMZN", "name": "Amazon.com Inc.", "market": "US", "currency": "USD", "alert_above": 220.0, "alert_below": 185.0, "notes": "AWS Cloud margin expansion"},
+        {"ticker": "GOOGL", "name": "Alphabet Inc.", "market": "US", "currency": "USD", "alert_above": 190.0, "alert_below": 165.0, "notes": "Search AI & Waymo"},
+    ]
+
+    created_holdings = 0
+    for item in demo_holdings:
+        # Check stock
+        res = await db.execute(select(Stock).where(Stock.ticker == item["ticker"]))
+        stock = res.scalars().first()
+        if not stock:
+            stock = Stock(ticker=item["ticker"], name=item["name"], market=item["market"], currency=item["currency"])
+            db.add(stock)
+            await db.commit()
+            await db.refresh(stock)
+
+        # Check holding
+        h_res = await db.execute(select(Holding).where(Holding.stock_id == stock.id))
+        if not h_res.scalars().first():
+            h = Holding(
+                stock_id=stock.id,
+                quantity=item["qty"],
+                avg_purchase_price=item["price"],
+                purchase_date=date.today(),
+                notes=item["notes"]
+            )
+            db.add(h)
+            created_holdings += 1
+
+    created_watchlist = 0
+    for item in demo_watchlist:
+        res = await db.execute(select(Stock).where(Stock.ticker == item["ticker"]))
+        stock = res.scalars().first()
+        if not stock:
+            stock = Stock(ticker=item["ticker"], name=item["name"], market=item["market"], currency=item["currency"])
+            db.add(stock)
+            await db.commit()
+            await db.refresh(stock)
+
+        w_res = await db.execute(select(WatchlistItem).where(WatchlistItem.stock_id == stock.id))
+        if not w_res.scalars().first():
+            w = WatchlistItem(
+                stock_id=stock.id,
+                notes=item["notes"],
+                alert_above=item.get("alert_above"),
+                alert_below=item.get("alert_below")
+            )
+            db.add(w)
+            created_watchlist += 1
+
+    await db.commit()
+    return {
+        "status": "success",
+        "message": f"Demo popolata con successo ({created_holdings} holding, {created_watchlist} watchlist).",
+        "created_holdings": created_holdings,
+        "created_watchlist": created_watchlist
+    }
+

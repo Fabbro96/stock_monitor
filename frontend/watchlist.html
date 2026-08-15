@@ -54,9 +54,9 @@
                         <span class="stat-desc">Titoli con variazione giornaliera negativa</span>
                     </div>
                     <div class="card stat-card">
-                        <div class="stat-label">Opportunità RSI (< 35)</div>
-                        <div class="stat-value text-warning font-mono" id="statWatchlistOversold">--</div>
-                        <span class="stat-desc">Titoli in zona di ipervenduto</span>
+                        <div class="stat-label">Alert Target Attivi</div>
+                        <div class="stat-value text-warning font-mono" id="statWatchlistAlerts">--</div>
+                        <span class="stat-desc">Soglie di prezzo monitorate</span>
                     </div>
                 </div>
 
@@ -65,7 +65,7 @@
                     <div class="flex justify-between items-center mb-4 flex-wrap gap-3">
                         <div class="flex items-center gap-2">
                             <h2 class="card-title" style="margin:0;">🎯 Azioni Monitorate</h2>
-                            <span class="text-xs text-secondary">(Clicca su qualsiasi titolo per aprire il grafico live e la scheda tecnica)</span>
+                            <span class="text-xs text-secondary">(Clicca su qualsiasi titolo per aprire la scheda tecnica completa)</span>
                         </div>
                         <div class="flex gap-2 items-center">
                             <input type="text" id="watchlistSearch" placeholder="Filtra ticker..." style="width: 180px; padding: 6px 12px; font-size: 0.85rem;">
@@ -81,13 +81,14 @@
                                     <th class="text-right">Variazione Oggi</th>
                                     <th style="min-width: 150px;">Range 52 Settimane</th>
                                     <th class="text-center">RSI (14)</th>
+                                    <th class="text-center">Alert Target</th>
                                     <th class="text-right">P/E</th>
                                     <th class="text-right">Div. Yield</th>
-                                    <th class="text-center" style="width: 180px;">Azioni Rapide</th>
+                                    <th class="text-center" style="width: 190px;">Azioni Rapide</th>
                                 </tr>
                             </thead>
                             <tbody id="watchlistTableBody">
-                                <tr><td colspan="8" class="text-center text-muted py-6">Caricamento Watchlist...</td></tr>
+                                <tr><td colspan="9" class="text-center text-muted py-6">Caricamento Watchlist...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -109,13 +110,49 @@
                     <input type="text" id="wlTickerInput" required placeholder="Es. NVDA, TSLA, RACE.MI, ENEL.MI, AAPL..." autocomplete="off">
                     <div id="wlAutocompleteResults" style="position:absolute;top:100%;left:0;right:0;background:var(--surface-color);border:1px solid var(--border-color);border-radius:6px;max-height:200px;overflow-y:auto;z-index:100;display:none;box-shadow:var(--shadow-md);"></div>
                 </div>
+                <div class="grid gap-3" style="display:grid; grid-template-columns: 1fr 1fr;">
+                    <div class="form-group">
+                        <label for="wlAlertAboveInput">🔔 Alert Se Sale Sopra (€/$)</label>
+                        <input type="number" step="any" id="wlAlertAboveInput" placeholder="Es. 150.00">
+                    </div>
+                    <div class="form-group">
+                        <label for="wlAlertBelowInput">🔔 Alert Se Scende Sotto (€/$)</label>
+                        <input type="number" step="any" id="wlAlertBelowInput" placeholder="Es. 120.00">
+                    </div>
+                </div>
                 <div class="form-group">
                     <label for="wlNotesInput">Note Operative / Strategia (Opzionale)</label>
-                    <input type="text" id="wlNotesInput" placeholder="Es. Attendere rottura supporto a 20€...">
+                    <input type="text" id="wlNotesInput" placeholder="Es. Attendere rottura resistenza a 20€...">
                 </div>
                 <div class="flex justify-end gap-2 mt-4">
                     <button type="button" class="btn btn-ghost" id="cancelAddWatchlist">Annulla</button>
                     <button type="submit" class="btn btn-primary">Aggiungi a Watchlist</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Imposta Alert Prezzo Target -->
+    <div class="modal-overlay" id="editAlertModal">
+        <div class="modal-content" style="max-width: 440px;">
+            <div class="modal-header">
+                <h2 class="modal-title">🔔 Imposta Alert di Prezzo</h2>
+                <button class="modal-close" id="closeEditAlertModal">×</button>
+            </div>
+            <form id="editAlertForm">
+                <input type="hidden" id="editAlertItemId">
+                <div class="text-sm font-bold text-primary mb-3" id="editAlertTickerLabel">--</div>
+                <div class="form-group">
+                    <label for="editAlertAbove">Avvisami se il prezzo sale sopra (€/$):</label>
+                    <input type="number" step="any" id="editAlertAbove" placeholder="Nessun limite superiore">
+                </div>
+                <div class="form-group">
+                    <label for="editAlertBelow">Avvisami se il prezzo scende sotto (€/$):</label>
+                    <input type="number" step="any" id="editAlertBelow" placeholder="Nessun limite inferiore">
+                </div>
+                <div class="flex justify-end gap-2 mt-4">
+                    <button type="button" class="btn btn-ghost" id="cancelEditAlert">Annulla</button>
+                    <button type="submit" class="btn btn-primary">Salva Alert</button>
                 </div>
             </form>
         </div>

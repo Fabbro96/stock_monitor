@@ -16,6 +16,9 @@ from backend.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Concurrency semaphore for Gemini API
+_gemini_semaphore = asyncio.Semaphore(2)
+
 class AdvisorService:
     def __init__(self):
         self.client = None
@@ -26,27 +29,22 @@ class AdvisorService:
         self.sentiment_service = SentimentService()
 
     async def generate_advice(self, db_session: AsyncSession, force: bool = False) -> list[dict]:
-        # 0. Verifica se i mercati finanziari sono aperti
         if not force and not MarketDataService.are_any_markets_open():
             logger.info("Borse chiuse: generazione analisi saltata (nessun mercato aperto).")
             return []
 
-        # 1. Recupera titoli monitorati
         result = await db_session.execute(select(Stock).where(Stock.is_active == True))
         stocks = result.scalars().all()
         if not stocks:
             logger.warning("Nessun titolo attivo trovato per la generazione dei consigli.")
             return []
         
-        # 2. Recupera posizioni attuali in portafoglio
         result = await db_session.execute(select(Holding))
         holdings = result.scalars().all()
         
-        # 3. Recupera impostazioni utente
         result = await db_session.execute(select(UserSettings).limit(1))
         user_settings = result.scalars().first()
         
-        # 4. Raccogli dati tecnici e notizie per ciascun titolo
         italian_stocks = []
         us_stocks = []
 
@@ -89,9 +87,10 @@ class AdvisorService:
             "target_markets": user_settings.markets.split(",") if (user_settings and user_settings.markets) else ["IT", "US"]
         }
 
-        # 5. Chiama Gemini
         prompt = self._build_macro_prompt(italian_stocks, us_stocks, settings_summary)
-        response_json = await asyncio.to_thread(self._call_gemini, prompt)
+        
+        async with _gemini_semaphore:
+            response_json = await asyncio.to_thread(self._call_gemini, prompt)
         
         if not response_json:
             logger.error("Risposta vuota o formato non valido da Gemini.")
@@ -100,22 +99,17 @@ class AdvisorService:
         advices_created = []
         now_utc = datetime.now(timezone.utc)
 
-        it_primary_stock = next((s for s in stocks if s.ticker.upper().endswith('.MI') or (s.market and s.market.upper() == 'IT')), stocks[0] if stocks else None)
-        us_primary_stock = next((s for s in stocks if not s.ticker.upper().endswith('.MI')), stocks[0] if stocks else None)
-
-        # Elabora Blocco Borsa Italiana
-        it_data = response_json.get('borsa_italiana')
-        if it_data:
-            stocks_json_str = json.dumps(it_data.get('stocks_analysis', []), ensure_ascii=False)
+        # 1. Borsa Italiana
+        it_data = response_json.get('borsa_italiana', {})
+        if it_data and 'overview' in it_data:
             adv_it = Advice(
-                stock_id=it_primary_stock.id if it_primary_stock else None,
                 market="IT",
-                title=it_data.get('title', 'Borsa Italiana (Piazza Affari)'),
-                action=it_data.get('action', 'MANTENIMENTO').upper(),
-                overview=it_data.get('overview', ''),
-                reasoning=it_data.get('strategy', ''),
-                stocks_json=stocks_json_str,
-                risks=it_data.get('risks', ''),
+                title=it_data.get('title', "Borsa Italiana (Piazza Affari)"),
+                action=it_data.get('action', 'MANTENIMENTO'),
+                overview=it_data.get('overview'),
+                reasoning=it_data.get('strategy'),
+                stocks_json=json.dumps(it_data.get('stocks_analysis', []), ensure_ascii=False),
+                risks=it_data.get('risks'),
                 confidence=it_data.get('confidence', 'MEDIUM').upper(),
                 timeframe=it_data.get('timeframe', 'Medio Termine'),
                 timestamp=now_utc
@@ -134,19 +128,17 @@ class AdvisorService:
                 "timestamp": str(now_utc)
             })
 
-        # Elabora Blocco Borsa Americana
-        us_data = response_json.get('borsa_americana')
-        if us_data:
-            stocks_json_str = json.dumps(us_data.get('stocks_analysis', []), ensure_ascii=False)
+        # 2. Borsa Americana
+        us_data = response_json.get('borsa_americana', {})
+        if us_data and 'overview' in us_data:
             adv_us = Advice(
-                stock_id=us_primary_stock.id if us_primary_stock else None,
                 market="US",
-                title=us_data.get('title', 'Borsa Americana (Wall Street / S&P 500 & Nasdaq)'),
-                action=us_data.get('action', 'MANTENIMENTO').upper(),
-                overview=us_data.get('overview', ''),
-                reasoning=us_data.get('strategy', ''),
-                stocks_json=stocks_json_str,
-                risks=us_data.get('risks', ''),
+                title=us_data.get('title', "Borsa Americana (Wall Street)"),
+                action=us_data.get('action', 'MANTENIMENTO'),
+                overview=us_data.get('overview'),
+                reasoning=us_data.get('strategy'),
+                stocks_json=json.dumps(us_data.get('stocks_analysis', []), ensure_ascii=False),
+                risks=us_data.get('risks'),
                 confidence=us_data.get('confidence', 'MEDIUM').upper(),
                 timeframe=us_data.get('timeframe', 'Medio Termine'),
                 timestamp=now_utc
@@ -170,11 +162,33 @@ class AdvisorService:
 
     async def analyze_single_stock(self, ticker: str, db_session: AsyncSession) -> dict:
         """
-        Genera un'analisi approfondita istantanea su richiesta per un singolo titolo con Google Gemini 3.7 Flash.
+        Genera un'analisi approfondita istantanea su richiesta per un singolo titolo con Google Gemini 3.7 Flash,
+        incorporando il contesto reale delle posizioni in portafoglio dell'utente.
         """
         ticker_up = ticker.strip().upper()
         deep_data = await MarketDataService.fetch_stock_deep_dive(ticker_up)
         
+        # Check if user holds this stock in portfolio
+        holding_info = None
+        res = await db_session.execute(
+            select(Holding).join(Stock).where(Stock.ticker == ticker_up)
+        )
+        holding = res.scalars().first()
+        if holding:
+            cur_price = deep_data.get('current_price', holding.avg_purchase_price)
+            invested = holding.quantity * holding.avg_purchase_price
+            cur_val = holding.quantity * cur_price
+            pnl_abs = cur_val - invested
+            pnl_pct = (pnl_abs / invested * 100) if invested else 0.0
+            holding_info = {
+                "in_portfolio": True,
+                "quantity": holding.quantity,
+                "avg_purchase_price": holding.avg_purchase_price,
+                "total_invested": round(invested, 2),
+                "current_pnl_abs": round(pnl_abs, 2),
+                "current_pnl_pct": round(pnl_pct, 2)
+            }
+
         # News contestuali
         name = deep_data.get("name", ticker_up)
         news_items = await self.sentiment_service.get_combined_market_context(ticker_up, name)
@@ -185,9 +199,21 @@ class AdvisorService:
         user_settings = result.scalars().first()
         strategy = user_settings.strategy if user_settings else "mixed"
 
+        portfolio_context_str = "L'utente NON possiede attualmente questo titolo in portafoglio."
+        if holding_info:
+            portfolio_context_str = f"""
+POSIZIONE ATTUALE DELL'UTENTE IN PORTAFOGLIO:
+- Quantità posseduta: {holding_info['quantity']} azioni
+- Prezzo Medio di Carico: {holding_info['avg_purchase_price']} {deep_data.get('currency')}
+- P&L Attuale: {holding_info['current_pnl_pct']}% ({holding_info['current_pnl_abs']} {deep_data.get('currency')})
+⚠️ NOTA BENE: Personalizza la tua raccomandazione operativa tenendo conto se l'utente è in profitto o perdita sulla posizione esistente!
+"""
+
         prompt = f"""
 Sei un Senior Equity Research Analyst & Quantitative Portfolio Strategist.
 Fornisci un'analisi approfondita e una raccomandazione operativa chiara per il titolo {ticker_up} ({name}).
+
+{portfolio_context_str}
 
 DATI FONDAMENTALI E DI MERCATO:
 - Prezzo Attuale: {deep_data.get('current_price')} {deep_data.get('currency')}
@@ -211,16 +237,17 @@ ULTIME NOTIZIE & SENTIMENT RECENTE:
 PROFILO UTENTE: Strategia {strategy}.
 
 ISTRUZIONI:
-1. Valuta il quadro tecnico e fondamentale integrando le notizie.
+1. Valuta il quadro tecnico e fondamentale integrando le notizie e l'eventuale posizione posseduta.
 2. Definisci una raccomandazione categorica tra: ACCUMULO (Buy), MANTENIMENTO (Hold), PRESA_PROFITTO (Sell), PRUDENZA.
 3. Fornisci un Target Price numerico realistico a 3-6 mesi e un livello di Stop Loss prudenziale.
 4. Elenca i principali catalizzatori positivi (Bull Case) e i fattori di rischio (Bear Case).
-5. Esprimi un giudizio tecnico sintetico e la strategia operativa per l'investitore.
+5. Esprimi un giudizio tecnico sintetico e la strategia operativa personalizzata.
 
 Rispondi ESCLUSIVAMENTE in formato JSON con questo schema:
 {{
     "ticker": "{ticker_up}",
     "name": "{name}",
+    "holding_context": {json.dumps(holding_info) if holding_info else 'null'},
     "action": "ACCUMULO" | "MANTENIMENTO" | "PRESA_PROFITTO" | "PRUDENZA",
     "action_label": "🟢 Accumulo / Buy" | "🟡 Mantenimento / Hold" | "🔴 Presa Profitto / Sell" | "🛡️ Prudenza",
     "target_price": 0.0,
@@ -232,14 +259,18 @@ Rispondi ESCLUSIVAMENTE in formato JSON con questo schema:
     "bull_case": "Fattori di crescita, vantaggi competitivi e catalizzatori rialzisti...",
     "bear_case": "Rischi di mercato, concorrenza, tassi, trimestrali...",
     "technical_verdict": "Sintesi tecnica basata su RSI, supporti/resistenze e medie mobili...",
-    "operational_strategy": "Consiglio pratico di posizionamento..."
+    "operational_strategy": "Consiglio pratico personalizzato di posizionamento..."
 }}
 """
-        response_json = await asyncio.to_thread(self._call_gemini, prompt)
+        async with _gemini_semaphore:
+            response_json = await asyncio.to_thread(self._call_gemini, prompt)
+        
         if response_json and "action" in response_json:
+            if holding_info:
+                response_json['holding_context'] = holding_info
             return response_json
 
-        # Fallback quantitativo se Gemini non risponde
+        # Fallback quantitativo deterministico
         price = deep_data.get('current_price', 10.0)
         rsi = deep_data.get('technical', {}).get('rsi_14', 50.0)
         
@@ -262,9 +293,14 @@ Rispondi ESCLUSIVAMENTE in formato JSON con questo schema:
             sl = round(price * 0.92, 2)
             conf = "MEDIA"
 
+        summary_text = f"Valutazione quantitativa per {ticker_up}. L'indicatore RSI({rsi}) suggerisce una configurazione di {action.lower()}."
+        if holding_info:
+            summary_text += f" Posizione in portafoglio: {holding_info['quantity']} azioni a carico {holding_info['avg_purchase_price']}€ ({holding_info['current_pnl_pct']}%)."
+
         return {
             "ticker": ticker_up,
             "name": name,
+            "holding_context": holding_info,
             "action": action,
             "action_label": action_label,
             "target_price": tp,
@@ -272,7 +308,7 @@ Rispondi ESCLUSIVAMENTE in formato JSON con questo schema:
             "upside_potential_pct": round(((tp - price) / price * 100), 2) if price else 0.0,
             "timeframe": "Medio Termine",
             "confidence": conf,
-            "summary": f"Valutazione quantitativa per {ticker_up}. L'indicatore RSI({rsi}) suggerisce una configurazione di {action.lower()}.",
+            "summary": summary_text,
             "bull_case": "Solido posizionamento settoriale e potenziale espansione dei multipli nel medio periodo.",
             "bear_case": "Possibile volatilità legata a fattori macroeconomici e dati trimestrali.",
             "technical_verdict": f"RSI a {rsi}, trend attuale {deep_data.get('technical', {}).get('trend', 'neutro')}.",

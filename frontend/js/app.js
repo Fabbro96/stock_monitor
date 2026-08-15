@@ -45,7 +45,7 @@ export const formatDateTime = (dateString) => {
   }).format(new Date(dateString));
 };
 
-export const showToast = (message, type = 'info') => {
+export const showToast = (message, type = 'info', actionText = null, onAction = null) => {
   let container = document.querySelector('.toast-container');
   if (!container) {
     container = document.createElement('div');
@@ -55,15 +55,30 @@ export const showToast = (message, type = 'info') => {
 
   const toast = document.createElement('div');
   toast.className = `toast toast-${type}`;
-  toast.innerHTML = `<span>${message}</span>`;
   
+  let actionHtml = '';
+  if (actionText && typeof onAction === 'function') {
+    actionHtml = `<button class="btn btn-ghost btn-sm" style="margin-left: 12px; padding: 2px 8px; font-size: 0.76rem;" id="toastActionBtn">${actionText}</button>`;
+  }
+
+  toast.innerHTML = `<span>${message}</span>${actionHtml}`;
   container.appendChild(toast);
+
+  if (actionText && onAction) {
+    toast.querySelector('#toastActionBtn')?.addEventListener('click', () => {
+      onAction();
+      toast.remove();
+    });
+  }
+
   setTimeout(() => toast.classList.add('show'), 10);
   
-  setTimeout(() => {
+  const timer = setTimeout(() => {
     toast.classList.remove('show');
     setTimeout(() => toast.remove(), 300);
-  }, 3500);
+  }, 4000);
+
+  toast.addEventListener('mouseenter', () => clearTimeout(timer));
 };
 
 export const showLoading = (elementId = null) => {
@@ -105,7 +120,10 @@ export const getChartThemeColors = () => {
     gridColor: isLight ? 'rgba(220, 224, 232, 0.7)' : 'rgba(41, 46, 66, 0.6)',
     lineColor: isLight ? '#1e66f5' : '#7aa2f7',
     topColor: isLight ? 'rgba(30, 102, 245, 0.25)' : 'rgba(122, 162, 247, 0.35)',
-    bottomColor: isLight ? 'rgba(30, 102, 245, 0.01)' : 'rgba(122, 162, 247, 0.01)'
+    bottomColor: isLight ? 'rgba(30, 102, 245, 0.01)' : 'rgba(122, 162, 247, 0.01)',
+    upColor: isLight ? '#40a02b' : '#9ece6a',
+    downColor: isLight ? '#d20f39' : '#f7768e',
+    volumeColor: isLight ? 'rgba(30, 102, 245, 0.3)' : 'rgba(122, 162, 247, 0.3)'
   };
 };
 
@@ -201,8 +219,13 @@ export const initTickerMarquee = async () => {
 // ==========================================
 let modalChart = null;
 let modalAreaSeries = null;
+let modalCandleSeries = null;
+let modalVolumeSeries = null;
+let modalBreakevenLine = null;
 let currentModalTicker = null;
 let currentModalTimeframe = '1m';
+let currentModalChartType = 'area'; // 'area' | 'candle'
+let rawCandlesData = [];
 
 const injectStockModalHTML = () => {
   if (document.getElementById('stockDeepDiveModal')) return;
@@ -219,6 +242,7 @@ const injectStockModalHTML = () => {
             <div class="flex items-center gap-2">
               <h2 class="modal-title" id="smTicker" style="margin:0;">--</h2>
               <span class="badge" id="smMarketBadge">--</span>
+              <span id="smHeldBadge" class="badge badge-buy" style="display: none;">💼 In Portafoglio</span>
             </div>
             <div class="text-xs text-secondary" id="smName">--</div>
           </div>
@@ -243,13 +267,19 @@ const injectStockModalHTML = () => {
       <!-- Tab Content: Chart -->
       <div id="tab-chart" class="modal-tab-panel">
         <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
-          <div class="timeframe-group" id="modalTimeframeGroup">
-            <button class="timeframe-btn" data-tf="1d">1G</button>
-            <button class="timeframe-btn" data-tf="1w">1S</button>
-            <button class="timeframe-btn active" data-tf="1m">1M</button>
-            <button class="timeframe-btn" data-tf="6m">6M</button>
-            <button class="timeframe-btn" data-tf="1y">1A</button>
-            <button class="timeframe-btn" data-tf="5y">5A</button>
+          <div class="flex items-center gap-2">
+            <div class="timeframe-group" id="modalTimeframeGroup">
+              <button class="timeframe-btn" data-tf="1d">1G</button>
+              <button class="timeframe-btn" data-tf="1w">1S</button>
+              <button class="timeframe-btn active" data-tf="1m">1M</button>
+              <button class="timeframe-btn" data-tf="6m">6M</button>
+              <button class="timeframe-btn" data-tf="1y">1A</button>
+              <button class="timeframe-btn" data-tf="5y">5A</button>
+            </div>
+            <div class="chart-type-group" id="modalChartTypeGroup">
+              <button class="chart-type-btn active" data-type="area">📈 Area</button>
+              <button class="chart-type-btn" data-type="candle">📊 Candele</button>
+            </div>
           </div>
           <div class="flex gap-2">
             <button class="btn btn-ghost btn-sm" id="btnModalAddWatchlist">⭐ Salva in Watchlist</button>
@@ -257,6 +287,10 @@ const injectStockModalHTML = () => {
           </div>
         </div>
         <div id="stockModalChart" style="width: 100%; height: 320px; border-radius: 8px; overflow: hidden; background: var(--surface-hover);"></div>
+        <div class="flex justify-between items-center text-xs text-muted mt-2">
+          <span id="smBreakevenLegend" style="display: none;">🟠 Linea Tratteggiata: Prezzo Medio Carico Portafoglio</span>
+          <span>Volumi visualizzati in basso</span>
+        </div>
       </div>
 
       <!-- Tab Content: Technicals -->
@@ -342,7 +376,7 @@ const injectStockModalHTML = () => {
         </div>
         <div id="stockAiResultContainer" class="card p-4" style="background: var(--surface-hover); border-left: 3px solid var(--primary-color);">
           <div class="text-center text-muted py-6 text-sm">
-            Clicca <strong>"Elabora Analisi Ora"</strong> per interrogare l'IA su fondamentali, indicatori tecnici e catalizzatori di mercato.
+            Clicca <strong>"Elabora Analisi Ora"</strong> per interrogare l'IA su fondamentali, indicatori tecnici, catalizzatori e posizione in portafoglio.
           </div>
         </div>
       </div>
@@ -373,6 +407,19 @@ const injectStockModalHTML = () => {
       loadModalChart(currentModalTicker, currentModalTimeframe);
     });
   });
+
+  // Chart type switcher
+  const chartTypeGroup = document.getElementById('modalChartTypeGroup');
+  if (chartTypeGroup) {
+    chartTypeGroup.querySelectorAll('.chart-type-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        chartTypeGroup.querySelectorAll('.chart-type-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentModalChartType = btn.dataset.type;
+        applyModalChartData();
+      });
+    });
+  }
 
   document.getElementById('btnRunStockAi').addEventListener('click', runModalStockAi);
 
@@ -421,7 +468,10 @@ const initModalChart = () => {
       vertLines: { color: themeColors.gridColor },
       horzLines: { color: themeColors.gridColor },
     },
-    rightPriceScale: { borderVisible: false },
+    rightPriceScale: {
+      borderVisible: false,
+      scaleMargins: { top: 0.1, bottom: 0.25 }
+    },
     timeScale: { borderVisible: false }
   });
 
@@ -431,16 +481,59 @@ const initModalChart = () => {
     lineColor: themeColors.lineColor,
     lineWidth: 2,
   });
+
+  modalCandleSeries = modalChart.addCandlestickSeries({
+    upColor: themeColors.upColor,
+    downColor: themeColors.downColor,
+    borderUpColor: themeColors.upColor,
+    borderDownColor: themeColors.downColor,
+    wickUpColor: themeColors.upColor,
+    wickDownColor: themeColors.downColor,
+    visible: false
+  });
+
+  modalVolumeSeries = modalChart.addHistogramSeries({
+    color: themeColors.volumeColor,
+    priceFormat: { type: 'volume' },
+    priceScaleId: '',
+    scaleMargins: { top: 0.8, bottom: 0 }
+  });
+};
+
+const applyModalChartData = () => {
+  if (!modalChart || rawCandlesData.length === 0) return;
+
+  if (currentModalChartType === 'candle') {
+    modalAreaSeries.applyOptions({ visible: false });
+    modalCandleSeries.applyOptions({ visible: true });
+    modalCandleSeries.setData(rawCandlesData.map(c => ({
+      time: c.time,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close
+    })));
+  } else {
+    modalCandleSeries.applyOptions({ visible: false });
+    modalAreaSeries.applyOptions({ visible: true });
+    modalAreaSeries.setData(rawCandlesData.map(c => ({ time: c.time, value: c.close })));
+  }
+
+  // Volume
+  modalVolumeSeries.setData(rawCandlesData.map(c => ({
+    time: c.time,
+    value: c.volume || 0,
+    color: c.close >= c.open ? 'rgba(158, 206, 106, 0.4)' : 'rgba(247, 118, 142, 0.4)'
+  })));
+
+  modalChart.timeScale().fitContent();
 };
 
 const loadModalChart = async (ticker, timeframe = '1m') => {
-  if (!modalAreaSeries || !ticker) return;
+  if (!modalChart || !ticker) return;
   try {
-    const candles = await api.getStockCandles(ticker, timeframe);
-    if (candles && candles.length > 0) {
-      modalAreaSeries.setData(candles.map(c => ({ time: c.time, value: c.close })));
-      modalChart.timeScale().fitContent();
-    }
+    rawCandlesData = await api.getStockCandles(ticker, timeframe);
+    applyModalChartData();
   } catch (e) {
     console.error('Errore caricamento candele modale:', e);
   }
@@ -459,12 +552,28 @@ const runModalStockAi = async () => {
     const result = await api.analyzeStockOnDemand(currentModalTicker);
     const actionBadgeClass = result.action === 'ACCUMULO' || result.action === 'BUY' ? 'badge-buy' : (result.action === 'PRESA_PROFITTO' || result.action === 'SELL' ? 'badge-sell' : 'badge-hold');
 
+    let holdingBox = '';
+    if (result.holding_context) {
+      const hc = result.holding_context;
+      holdingBox = `
+        <div class="p-2.5 mb-3 rounded border border-border-color" style="background: linear-gradient(90deg, rgba(59,130,246,0.12), transparent);">
+          <div class="text-xs text-primary font-bold mb-1">💼 Posizione nel tuo Portafoglio</div>
+          <div class="flex justify-between items-center text-xs font-mono">
+            <span>Possiedi: <strong>${hc.quantity}</strong> azioni a carico <strong>${formatCurrency(hc.avg_purchase_price)}</strong></span>
+            <span class="${hc.current_pnl_pct >= 0 ? 'text-profit' : 'text-loss'} font-bold">P&L: ${formatCurrency(hc.current_pnl_abs)} (${formatPercent(hc.current_pnl_pct)})</span>
+          </div>
+        </div>
+      `;
+    }
+
     container.innerHTML = `
       <div>
         <div class="flex justify-between items-center mb-3">
           <span class="badge ${actionBadgeClass}" style="font-size: 0.85rem; padding: 4px 10px;">${result.action_label || result.action}</span>
           <div class="text-xs text-muted">Confidenza: <strong class="text-primary">${result.confidence || 'MEDIA'}</strong> • Orizzonte: <strong class="text-primary">${result.timeframe || 'Medio Termine'}</strong></div>
         </div>
+
+        ${holdingBox}
 
         <div class="grid gap-3 mb-3" style="display: grid; grid-template-columns: 1fr 1fr;">
           <div class="p-2.5 rounded border border-border-color" style="background: var(--surface-card);">
@@ -524,12 +633,18 @@ export const openStockModal = async (ticker) => {
   document.getElementById('smName').textContent = 'Caricamento dati...';
   document.getElementById('smPrice').textContent = '--';
   document.getElementById('smChange').textContent = '--';
+  document.getElementById('smHeldBadge').style.display = 'none';
+  document.getElementById('smBreakevenLegend').style.display = 'none';
 
   initModalChart();
   loadModalChart(currentModalTicker, currentModalTimeframe);
 
   try {
-    const data = await api.getStockDetails(currentModalTicker);
+    const [data, portfolio] = await Promise.all([
+      api.getStockDetails(currentModalTicker).catch(() => ({})),
+      api.getPortfolio().catch(() => [])
+    ]);
+
     document.getElementById('smName').textContent = data.name || currentModalTicker;
     document.getElementById('smPrice').textContent = formatCurrency(data.current_price, data.currency);
     
@@ -543,6 +658,25 @@ export const openStockModal = async (ticker) => {
     marketBadge.className = `badge ${data.market === 'IT' ? 'badge-buy' : 'badge-cyan'}`;
 
     document.getElementById('smFlag').textContent = data.market === 'IT' ? '🇮🇹' : '🇺🇸';
+
+    // Check if in portfolio
+    const held = portfolio.find(p => p.ticker === currentModalTicker);
+    if (held) {
+      document.getElementById('smHeldBadge').style.display = 'inline-flex';
+      document.getElementById('smBreakevenLegend').style.display = 'inline';
+      
+      if (modalBreakevenLine) {
+        modalAreaSeries.removePriceLine(modalBreakevenLine);
+      }
+      modalBreakevenLine = modalAreaSeries.createPriceLine({
+        price: held.avg_purchase_price,
+        color: '#f59e0b',
+        lineWidth: 2,
+        lineStyle: 2, // Dashed
+        axisLabelVisible: true,
+        title: `Carico ${formatCurrency(held.avg_purchase_price, held.currency)}`
+      });
+    }
 
     const tech = data.technical || {};
     document.getElementById('smRsiVal').textContent = tech.rsi_14 || '--';
@@ -589,11 +723,27 @@ const initSidebar = () => {
     }
   });
 
+  // Mobile drawer backdrop
+  let backdrop = document.getElementById('sidebarBackdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.className = 'sidebar-backdrop';
+    backdrop.id = 'sidebarBackdrop';
+    document.body.appendChild(backdrop);
+  }
+
   const toggle = document.querySelector('.mobile-toggle');
   const sidebar = document.querySelector('.sidebar');
-  if (toggle && sidebar) {
+  
+  if (toggle && sidebar && backdrop) {
     toggle.addEventListener('click', () => {
       sidebar.classList.toggle('open');
+      backdrop.classList.toggle('active');
+    });
+
+    backdrop.addEventListener('click', () => {
+      sidebar.classList.remove('open');
+      backdrop.classList.remove('active');
     });
   }
 
@@ -655,7 +805,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Listen for theme changes to update modal chart
   window.addEventListener('themeChanged', () => {
-    if (modalChart && modalAreaSeries) {
+    if (modalChart) {
       const colors = getChartThemeColors();
       modalChart.applyOptions({
         layout: { textColor: colors.textColor },
@@ -664,11 +814,20 @@ document.addEventListener('DOMContentLoaded', () => {
           horzLines: { color: colors.gridColor }
         }
       });
-      modalAreaSeries.applyOptions({
+      modalAreaSeries?.applyOptions({
         topColor: colors.topColor,
         bottomColor: colors.bottomColor,
         lineColor: colors.lineColor
       });
+      modalCandleSeries?.applyOptions({
+        upColor: colors.upColor,
+        downColor: colors.downColor,
+        borderUpColor: colors.upColor,
+        borderDownColor: colors.downColor,
+        wickUpColor: colors.upColor,
+        wickDownColor: colors.downColor
+      });
+      modalVolumeSeries?.applyOptions({ color: colors.volumeColor });
     }
   });
 

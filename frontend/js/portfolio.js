@@ -4,9 +4,20 @@ import { formatCurrency, formatPercent, showLoading, hideLoading, showToast } fr
 let portfolioData = [];
 let summaryData = {};
 let modifiedHoldings = new Map();
-let currentAllocView = 'stock'; // 'stock' or 'market'
+let currentAllocView = localStorage.getItem('portfolio_alloc_view') || 'stock'; // 'stock' or 'market'
 
 const colors = ['#3b82f6', '#10b981', '#f43f5e', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#6366f1', '#14b8a6'];
+
+const renderSkeletons = () => {
+  const tbody = document.getElementById('portfolioTableBody');
+  if (tbody) {
+    tbody.innerHTML = `
+      <tr><td colspan="9"><div class="skeleton skeleton-row"></div></td></tr>
+      <tr><td colspan="9"><div class="skeleton skeleton-row"></div></td></tr>
+      <tr><td colspan="9"><div class="skeleton skeleton-row"></div></td></tr>
+    `;
+  }
+};
 
 const drawPieChart = (data) => {
   const canvas = document.getElementById('allocationChart');
@@ -16,7 +27,7 @@ const drawPieChart = (data) => {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   
   if (!data || data.length === 0) {
-    ctx.fillStyle = '#21253d';
+    ctx.fillStyle = 'rgba(122, 162, 247, 0.15)';
     ctx.beginPath();
     ctx.arc(canvas.width/2, canvas.height/2, Math.min(canvas.width/2, canvas.height/2) - 10, 0, 2 * Math.PI);
     ctx.fill();
@@ -87,12 +98,36 @@ const updateSaveBar = () => {
   }
 };
 
+const triggerSeedDemo = async () => {
+  try {
+    showLoading('portfolioContent');
+    const res = await api.seedDemo();
+    showToast(res.message || 'Demo inizializzata con successo!', 'success');
+    loadPortfolio();
+  } catch (e) {
+    showToast(e.message || 'Errore nel caricamento della demo', 'error');
+  } finally {
+    hideLoading('portfolioContent');
+  }
+};
+
 const renderTable = () => {
   const tbody = document.getElementById('portfolioTableBody');
   if (!tbody) return;
   
   if (portfolioData.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-8">Nessun titolo in portafoglio. Clicca <strong>"➕ Aggiungi Holding"</strong> o <strong>"📤 Importa CSV"</strong> per iniziare.</td></tr>';
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="9" class="text-center text-muted py-8">
+          Nessun titolo in portafoglio. 
+          <div class="mt-3 flex justify-center gap-2">
+            <button class="btn btn-primary" onclick="window.openAddHoldingModal()">➕ Aggiungi Holding</button>
+            <button class="btn btn-ghost" id="btnEmptySeedDemo">🚀 Inizializza Demo</button>
+          </div>
+        </td>
+      </tr>
+    `;
+    tbody.querySelector('#btnEmptySeedDemo')?.addEventListener('click', triggerSeedDemo);
     return;
   }
 
@@ -226,12 +261,10 @@ const handleInlineEdit = (e) => {
 
 export const loadPortfolio = async () => {
   try {
-    showLoading('portfolioContent');
+    renderSkeletons();
     summaryData = await api.getPortfolioSummary().catch(() => ({}));
     portfolioData = await api.getPortfolio().catch(() => []);
-    // Dispatch event for UI effects (pulse green/red on price updates)
-    const priceEvent = new CustomEvent("portfolio:price:updated");
-    window.dispatchEvent(priceEvent)
+
     document.getElementById('totalValue').textContent = formatCurrency(summaryData.total_value || 0);
     document.getElementById('totalInvested').textContent = formatCurrency(summaryData.total_invested || 0);
     document.getElementById('totalCount').textContent = summaryData.holdings_count || portfolioData.length;
@@ -254,8 +287,6 @@ export const loadPortfolio = async () => {
 
   } catch (error) {
     showToast('Errore nel caricamento del portafoglio', 'error');
-  } finally {
-    hideLoading('portfolioContent');
   }
 };
 
@@ -263,14 +294,22 @@ window.deleteHolding = async (id) => {
   const item = portfolioData.find(h => h.id === id);
   const ticker = item ? item.ticker : 'questa holding';
   
-  if (confirm(`Sei sicuro di voler eliminare ${ticker} dal portafoglio?`)) {
-    try {
-      await api.deleteHolding(id);
-      showToast(`${ticker} eliminata con successo`, 'success');
-      loadPortfolio();
-    } catch (e) {
-      showToast('Errore durante l\'eliminazione', 'error');
-    }
+  try {
+    await api.deleteHolding(id);
+    showToast(`${ticker} eliminata con successo`, 'info', 'Annulla', async () => {
+      if (item) {
+        await api.addHolding({
+          ticker: item.ticker,
+          quantity: item.quantity,
+          avg_purchase_price: item.avg_purchase_price,
+          notes: item.notes
+        });
+        loadPortfolio();
+      }
+    });
+    loadPortfolio();
+  } catch (e) {
+    showToast('Errore durante l\'eliminazione', 'error');
   }
 };
 
@@ -288,6 +327,7 @@ const openAddModal = (defaultTicker = '') => {
   }
   holdingModal.classList.add('active');
 };
+window.openAddHoldingModal = openAddModal;
 
 const closeHoldingModal = () => holdingModal.classList.remove('active');
 const closeConfirmModal = () => confirmSaveModal.classList.remove('active');
@@ -308,31 +348,37 @@ document.addEventListener('DOMContentLoaded', () => {
     openAddModal(addTicker.toUpperCase());
   }
 
-  // Allocation toggle
+  // Allocation toggle with persistence
   const allocGroup = document.getElementById('allocTypeGroup');
   if (allocGroup) {
     allocGroup.querySelectorAll('.timeframe-btn').forEach(btn => {
+      if (btn.dataset.type === currentAllocView) {
+        allocGroup.querySelectorAll('.timeframe-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      }
+
       btn.addEventListener('click', () => {
         allocGroup.querySelectorAll('.timeframe-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         currentAllocView = btn.dataset.type;
+        localStorage.setItem('portfolio_alloc_view', currentAllocView);
         updateAllocationChart();
       });
     });
   }
 
-  document.getElementById('btnAddHolding').addEventListener('click', () => openAddModal());
-  document.getElementById('closeModal').addEventListener('click', closeHoldingModal);
-  document.getElementById('cancelModal').addEventListener('click', closeHoldingModal);
+  document.getElementById('btnAddHolding')?.addEventListener('click', () => openAddModal());
+  document.getElementById('closeModal')?.addEventListener('click', closeHoldingModal);
+  document.getElementById('cancelModal')?.addEventListener('click', closeHoldingModal);
 
-  document.getElementById('closeConfirmModal').addEventListener('click', closeConfirmModal);
-  document.getElementById('cancelConfirmModal').addEventListener('click', closeConfirmModal);
+  document.getElementById('closeConfirmModal')?.addEventListener('click', closeConfirmModal);
+  document.getElementById('cancelConfirmModal')?.addEventListener('click', closeConfirmModal);
 
-  document.getElementById('closeImportModal').addEventListener('click', closeImportModal);
-  document.getElementById('cancelImportModal').addEventListener('click', closeImportModal);
+  document.getElementById('closeImportModal')?.addEventListener('click', closeImportModal);
+  document.getElementById('cancelImportModal')?.addEventListener('click', closeImportModal);
 
   // Cancel Pending Changes
-  document.getElementById('btnCancelChanges').addEventListener('click', () => {
+  document.getElementById('btnCancelChanges')?.addEventListener('click', () => {
     if (confirm('Vuoi annullare tutte le modifiche non salvate?')) {
       modifiedHoldings.clear();
       updateSaveBar();
@@ -342,7 +388,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Open Confirm Save Modal
-  document.getElementById('btnSaveChanges').addEventListener('click', () => {
+  document.getElementById('btnSaveChanges')?.addEventListener('click', () => {
     if (modifiedHoldings.size === 0) return;
 
     const listEl = document.getElementById('confirmChangesList');
@@ -362,7 +408,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Execute Batch Save
-  document.getElementById('btnExecuteSave').addEventListener('click', async () => {
+  document.getElementById('btnExecuteSave')?.addEventListener('click', async () => {
     const btn = document.getElementById('btnExecuteSave');
     btn.disabled = true;
     btn.textContent = 'Salvataggio in corso...';
@@ -388,7 +434,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Add Single Holding
-  document.getElementById('holdingForm').addEventListener('submit', async (e) => {
+  document.getElementById('holdingForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const data = {
       ticker: document.getElementById('tickerInput').value.trim().toUpperCase(),
@@ -413,37 +459,39 @@ document.addEventListener('DOMContentLoaded', () => {
   const tickerInput = document.getElementById('tickerInput');
   const resultsDiv = document.getElementById('autocompleteResults');
 
-  tickerInput.addEventListener('input', (e) => {
-    clearTimeout(timeout);
-    const q = e.target.value.trim();
-    if (q.length < 2) {
-      resultsDiv.style.display = 'none';
-      return;
-    }
-    timeout = setTimeout(async () => {
-      try {
-        const results = await api.searchStocks(q);
-        if (results && results.length > 0) {
-          resultsDiv.innerHTML = results.map(r => `
-            <div style="padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--border-color); transition: var(--transition);" 
-                 onmouseover="this.style.backgroundColor='var(--surface-hover)'" 
-                 onmouseout="this.style.backgroundColor='transparent'"
-                 onclick="document.getElementById('tickerInput').value='${r.ticker}';document.getElementById('autocompleteResults').style.display='none';">
-              <strong class="text-primary font-mono">${r.ticker}</strong> — <span class="text-secondary">${r.name}</span>
-            </div>
-          `).join('');
-          resultsDiv.style.display = 'block';
-        } else {
+  if (tickerInput && resultsDiv) {
+    tickerInput.addEventListener('input', (e) => {
+      clearTimeout(timeout);
+      const q = e.target.value.trim();
+      if (q.length < 2) {
+        resultsDiv.style.display = 'none';
+        return;
+      }
+      timeout = setTimeout(async () => {
+        try {
+          const results = await api.searchStocks(q);
+          if (results && results.length > 0) {
+            resultsDiv.innerHTML = results.map(r => `
+              <div style="padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--border-color); transition: var(--transition);" 
+                   onmouseover="this.style.backgroundColor='var(--surface-hover)'" 
+                   onmouseout="this.style.backgroundColor='transparent'"
+                   onclick="document.getElementById('tickerInput').value='${r.ticker}';document.getElementById('autocompleteResults').style.display='none';">
+                <strong class="text-primary font-mono">${r.ticker}</strong> — <span class="text-secondary">${r.name}</span>
+              </div>
+            `).join('');
+            resultsDiv.style.display = 'block';
+          } else {
+            resultsDiv.style.display = 'none';
+          }
+        } catch (e) {
           resultsDiv.style.display = 'none';
         }
-      } catch (e) {
-        resultsDiv.style.display = 'none';
-      }
-    }, 250);
-  });
+      }, 250);
+    });
+  }
 
   // Export CSV
-  document.getElementById('btnExport').addEventListener('click', async () => {
+  document.getElementById('btnExport')?.addEventListener('click', async () => {
     try {
       const token = localStorage.getItem('auth_token');
       const res = await fetch('/api/portfolio/export?format=csv', {
@@ -469,12 +517,12 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Import CSV
-  document.getElementById('btnImport').addEventListener('click', () => {
+  document.getElementById('btnImport')?.addEventListener('click', () => {
     document.getElementById('csvFileInput').value = '';
     importModal.classList.add('active');
   });
 
-  document.getElementById('btnSubmitImport').addEventListener('click', async () => {
+  document.getElementById('btnSubmitImport')?.addEventListener('click', async () => {
     const fileInput = document.getElementById('csvFileInput');
     if (fileInput.files.length === 0) {
       showToast('Seleziona un file CSV da caricare', 'error');
@@ -498,206 +546,3 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
-
-// ===========================================================================
-// ⚖️ SMART PORTFOLIO REBALANCER
-// ===========================================================================
-const SCOPE_LABELS = { MARKET: '🌍 Mercato', TICKERS: '🏷 Ticker', CASH: '💵 Cash' };
-
-const loadRebalanceTargets = async () => {
-  const tbody = document.getElementById('targetsTableBody');
-  if (!tbody) return;
-  try {
-    const targets = await api.getRebalanceTargets();
-    if (!targets || targets.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3 text-xs">Nessuna allocazione target definita.</td></tr>';
-      return;
-    }
-    const sumPct = targets.reduce((a, t) => a + (t.target_percent || 0), 0);
-    tbody.innerHTML = targets.map(t => `
-      <tr>
-        <td><span class="font-bold text-primary">${t.name}</span></td>
-        <td class="text-center text-xs text-secondary">${SCOPE_LABELS[t.scope_type] || t.scope_type}${t.scope_value ? `: ${t.scope_value}` : ''}</td>
-        <td class="text-right font-mono font-bold">${Number(t.target_percent).toFixed(1)}%</td>
-        <td class="text-center">
-          <button class="btn btn-ghost btn-sm text-loss" title="Elimina" onclick="window.deleteRebalanceTarget(${t.id})">🗑️</button>
-        </td>
-      </tr>
-    `).join('') + `
-      <tr>
-        <td colspan="2" class="text-right text-xs font-bold ${Math.abs(sumPct - 100) < 0.01 ? 'text-profit' : 'text-warning'}">Somma target:</td>
-        <td class="text-right font-mono font-bold ${Math.abs(sumPct - 100) < 0.01 ? 'text-profit' : 'text-warning'}">${sumPct.toFixed(1)}%</td>
-        <td></td>
-      </tr>
-    `;
-  } catch (e) {
-    console.error('Errore caricamento target:', e);
-  }
-};
-
-window.deleteRebalanceTarget = async (id) => {
-  if (!confirm('Eliminare questa allocazione target?')) return;
-  try {
-    await api.deleteRebalanceTarget(id);
-    showToast('Allocazione eliminata', 'success');
-    loadRebalanceTargets();
-  } catch (e) {
-    showToast(e.message || 'Errore eliminazione target', 'error');
-  }
-};
-
-const renderRebalancePlan = (plan) => {
-  const container = document.getElementById('rebalanceResult');
-  if (!container || !plan) return;
-
-  if (plan.portfolio_empty) {
-    container.innerHTML = '<div class="alert-error text-center py-4 text-xs">Il portafoglio è vuoto: aggiungi posizioni per calcolare il ribilanciamento.</div>';
-    return;
-  }
-
-  const allocRows = (plan.allocations || []).map(a => {
-    const drift = a.drift_pct || 0;
-    const driftClass = Math.abs(drift) < 1 ? 'text-secondary' : (drift > 0 ? 'text-profit' : 'text-loss');
-    return `
-      <tr>
-        <td><span class="font-bold">${a.name}</span></td>
-        <td class="text-right font-mono">${Number(a.current_percent).toFixed(1)}% → <strong>${Number(a.target_percent).toFixed(1)}%</strong></td>
-        <td class="text-right font-mono ${driftClass}">${drift > 0 ? '+' : ''}${drift.toFixed(1)}%</td>
-        <td class="text-right font-mono ${a.delta >= 0 ? 'text-profit' : 'text-loss'}">${a.delta >= 0 ? '+' : ''}${formatCurrency(a.delta)}</td>
-      </tr>
-    `;
-  }).join('');
-
-  const orderRows = (plan.orders || []).map(o => `
-    <tr>
-      <td><span class="badge ${o.side === 'BUY' ? 'badge-buy' : 'badge-sell'}">${o.side === 'BUY' ? '🟢 BUY' : '🔴 SELL'}</span></td>
-      <td><span class="font-bold font-mono">${o.ticker}</span><div class="text-[11px] text-muted">${o.allocation_name}</div></td>
-      <td class="text-right font-mono font-bold">${o.quantity}</td>
-      <td class="text-right font-mono">${formatCurrency(o.estimated_price, o.currency)}</td>
-      <td class="text-right font-mono font-bold ${o.side === 'BUY' ? 'order-side-buy' : 'order-side-sell'}">${formatCurrency(o.estimated_value, o.currency)}</td>
-    </tr>
-  `).join('');
-
-  container.innerHTML = `
-    <div class="mb-3">
-      <div class="flex justify-between text-xs text-secondary mb-2 flex-wrap gap-2">
-        <span>💰 Valore considerato: <strong class="text-primary font-mono">${formatCurrency(plan.total_value)}</strong></span>
-        ${plan.extra_cash > 0 ? `<span>💵 Liquidità extra: <strong class="font-mono">${formatCurrency(plan.extra_cash)}</strong></span>` : ''}
-        <span>🎯 Target coperti: <strong class="font-mono">${plan.targets_sum_percent}%</strong></span>
-      </div>
-      <div class="table-container">
-        <table>
-          <thead><tr><th>Bucket</th><th class="text-right">Attuale → Target</th><th class="text-right">Drift</th><th class="text-right">Delta €</th></tr></thead>
-          <tbody>${allocRows}</tbody>
-        </table>
-      </div>
-    </div>
-    ${plan.orders_count > 0 ? `
-      <div class="text-xs font-bold text-primary mb-2">🧾 Ordini suggeriti (${plan.orders_count}) — Buy ${formatCurrency(plan.total_buy_value)} | Sell ${formatCurrency(plan.total_sell_value)}</div>
-      <div class="table-container">
-        <table>
-          <thead><tr><th>Side</th><th>Titolo</th><th class="text-right">Quantità</th><th class="text-right">Prezzo Stimato</th><th class="text-right">Controvalore</th></tr></thead>
-          <tbody>${orderRows}</tbody>
-        </table>
-      </div>
-      <div class="text-[11px] text-muted mt-2">⚠️ Ordini indicativi calcolati sui prezzi correnti; non costituiscono consulenza finanziaria.</div>
-    ` : '<div class="text-center text-muted text-xs py-3">✅ Portafoglio già allineato ai target: nessun ordine necessario.</div>'}
-  `;
-};
-
-document.addEventListener('DOMContentLoaded', () => {
-  const btnAddTarget = document.getElementById('btnAddTarget');
-  const btnPreview = document.getElementById('btnRebalancePreview');
-  if (!btnAddTarget || !btnPreview) return;
-
-  loadRebalanceTargets();
-
-  const scopeTypeSel = document.getElementById('targetScopeType');
-  const scopeValueInput = document.getElementById('targetScopeValue');
-  scopeTypeSel.addEventListener('change', () => {
-    scopeValueInput.disabled = scopeTypeSel.value === 'CASH';
-    if (scopeTypeSel.value === 'CASH') scopeValueInput.value = '';
-  });
-
-  btnAddTarget.addEventListener('click', async () => {
-    const name = document.getElementById('targetName').value.trim();
-    const pct = parseFloat(document.getElementById('targetPct').value);
-    const scope_type = scopeTypeSel.value;
-    const scope_value = scopeValueInput.value.trim();
-
-    if (!name || isNaN(pct) || pct <= 0 || pct > 100) {
-      showToast('Inserisci nome e percentuale target valida (0-100)', 'error');
-      return;
-    }
-    try {
-      await api.addRebalanceTarget({ name, target_percent: pct, scope_type, scope_value });
-      showToast(`Allocazione "${name}" aggiunta`, 'success');
-      document.getElementById('targetName').value = '';
-      document.getElementById('targetPct').value = '';
-      scopeValueInput.value = '';
-      loadRebalanceTargets();
-    } catch (e) {
-      showToast(e.message || 'Errore salvataggio allocazione', 'error');
-    }
-  });
-
-  btnPreview.addEventListener('click', async () => {
-    const extraCash = parseFloat(document.getElementById('rebalanceCashInput').value) || 0;
-    const container = document.getElementById('rebalanceResult');
-    btnPreview.disabled = true;
-    btnPreview.textContent = 'Calcolo in corso...';
-    if (container) container.classList.add('skeleton');
-    try {
-      const plan = await api.rebalancePreview(extraCash);
-      renderRebalancePlan(plan);
-    } catch (e) {
-      if (container) container.innerHTML = `<div class="alert-error text-center py-4 text-xs">${e.message || 'Errore nel calcolo del piano'}</div>`;
-    } finally {
-      btnPreview.disabled = false;
-      btnPreview.textContent = 'Calcola Ordini ➔';
-      if (container) container.classList.remove('skeleton');
-    }
-  });
-});
-
-  // Add breakeven price column and pulse effects
-  const priceHeaders = tbody.querySelectorAll("th");
-  const priceColIndex = Array.from(priceHeaders).findIndex(h => h.textContent.includes("Prezzo"));
-  if (priceColIndex >= 0) {
-    const breakevenHeader = document.createElement("th");
-    breakevenHeader.style.cssText = "width: 120px;";
-    breakevenHeader.textContent = "Prezzo Medio";
-    priceHeaders[priceColIndex + 1].parentNode.insertBefore(breakevenHeader, priceHeaders[priceColIndex + 1].nextSibling);
-  }
-  tbody.querySelectorAll("tr").forEach((row, i) => {
-    const priceCels = row.querySelectorAll("td");
-    if (priceCels && portfolioData[i]) {
-      const breakevenCell = document.createElement("td");
-      breakevenCell.className = "breakeven-price text-right font-mono";
-      breakevenCell.style.cssText = "width: 120px; color: #f59e0b; font-size: 0.85rem";
-      breakevenCell.textContent = formatCurrency(portfolioData[i].avg_purchase_price, portfolioData[i].currency || "EUR");
-      const priceCell = priceCels[6];
-      if (priceCell) {
-        priceCell.parentNode.insertBefore(breakevenCell, priceCell.nextSibling);
-      }
-    }
-  });
-
-  // Pulse effects on price updates
-  const pulsePortfolioPrices = () => {
-    tbody.querySelectorAll(".price-cell").forEach(cell => {
-      const prevVal = cell.dataset.prevPrice;
-      if (prevVal === undefined) {
-        cell.dataset.prevPrice = cell.textContent;
-      }
-      const numericVal = parseFloat(cell.textContent.replace(/[^0-9.-]/g, "")) || 0;
-      if (cell.dataset.pulsing) return;
-      if (numericVal > 0 && numericVal !== parseFloat(cell.dataset.prevPrice)) {
-        cell.classList.add(numericVal > parseFloat(cell.dataset.prevPrice) ? "pulse-green" : "pulse-red");
-        cell.dataset.prevPrice = cell.textContent;
-        setTimeout(() => cell.classList.remove(numericVal > parseFloat(cell.dataset.prevPrice) ? "pulse-green" : "pulse-red"), 400);
-      }
-    });
-  };
-
-  window.addEventListener("portfolio:price:updated", pulsePortfolioPrices);

@@ -96,12 +96,14 @@ export const api = {
   // Watchlist
   getWatchlist: () => fetchApi('/watchlist/'),
   addToWatchlist: (data) => fetchApi('/watchlist/', { method: 'POST', body: JSON.stringify(data) }),
+  updateWatchlistAlert: (id, data) => fetchApi(`/watchlist/${id}/alert`, { method: 'PUT', body: JSON.stringify(data) }),
   removeFromWatchlist: (id) => fetchApi(`/watchlist/${id}`, { method: 'DELETE' }),
   removeWatchlistByTicker: (ticker) => fetchApi(`/watchlist/ticker/${encodeURIComponent(ticker)}`, { method: 'DELETE' }),
 
   // Portfolio
   getPortfolio: () => fetchApi('/portfolio/'),
   getPortfolioSummary: () => fetchApi('/portfolio/summary'),
+  seedDemo: () => fetchApi('/portfolio/seed-demo', { method: 'POST' }),
   getRiskMetrics: (days = 180) => fetchApi(`/portfolio/risk-metrics?days=${days}`),
   getBenchmarks: (days = 90, tickers = null) => fetchApi(`/portfolio/benchmarks?days=${days}${tickers ? `&tickers=${encodeURIComponent(tickers)}` : ''}`),
   addHolding: (data) => fetchApi('/portfolio/holdings', { method: 'POST', body: JSON.stringify(data) }),

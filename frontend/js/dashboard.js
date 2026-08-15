@@ -3,8 +3,43 @@ import { formatCurrency, formatPercent, showLoading, hideLoading, showToast, get
 
 let chart = null;
 let lineSeries = null;
+let candleSeries = null;
+let volumeSeries = null;
 let resizeObserver = null;
-let currentChartDays = 30;
+let currentChartDays = parseInt(localStorage.getItem('dashboard_timeframe')) || 30;
+let currentChartType = 'area';
+let benchSeriesMap = {};
+let activeBenchmark = 'none';
+let performanceRawData = [];
+
+const renderSkeletons = () => {
+  const statGrid = document.querySelector('.stat-grid');
+  if (statGrid) {
+    const valEls = statGrid.querySelectorAll('.stat-value');
+    valEls.forEach(el => {
+      el.innerHTML = '<div class="skeleton skeleton-value"></div>';
+    });
+  }
+
+  const tbody = document.getElementById('holdingsTableBody');
+  if (tbody) {
+    tbody.innerHTML = `
+      <tr><td colspan="7"><div class="skeleton skeleton-row"></div></td></tr>
+      <tr><td colspan="7"><div class="skeleton skeleton-row"></div></td></tr>
+      <tr><td colspan="7"><div class="skeleton skeleton-row"></div></td></tr>
+    `;
+  }
+
+  const heatmap = document.getElementById('marketHeatmap');
+  if (heatmap) {
+    heatmap.innerHTML = `
+      <div class="skeleton skeleton-card"></div>
+      <div class="skeleton skeleton-card"></div>
+      <div class="skeleton skeleton-card"></div>
+      <div class="skeleton skeleton-card"></div>
+    `;
+  }
+};
 
 const initChart = () => {
   const chartContainer = document.getElementById('portfolioChart');
@@ -29,7 +64,7 @@ const initChart = () => {
     },
     rightPriceScale: {
       borderVisible: false,
-      scaleMargins: { top: 0.1, bottom: 0.1 }
+      scaleMargins: { top: 0.1, bottom: 0.25 }
     },
     timeScale: {
       borderVisible: false,
@@ -48,6 +83,42 @@ const initChart = () => {
     lineColor: themeColors.lineColor,
     lineWidth: 2,
     crosshairMarkerVisible: true,
+  });
+
+  candleSeries = chart.addCandlestickSeries({
+    upColor: themeColors.upColor,
+    downColor: themeColors.downColor,
+    borderUpColor: themeColors.upColor,
+    borderDownColor: themeColors.downColor,
+    wickUpColor: themeColors.upColor,
+    wickDownColor: themeColors.downColor,
+    visible: false
+  });
+
+  volumeSeries = chart.addHistogramSeries({
+    color: themeColors.volumeColor,
+    priceFormat: { type: 'volume' },
+    priceScaleId: '',
+    scaleMargins: { top: 0.82, bottom: 0 }
+  });
+
+  // Benchmark series
+  benchSeriesMap['^GSPC'] = chart.addLineSeries({
+    color: '#10b981',
+    lineWidth: 2,
+    priceLineVisible: false,
+    lastValueVisible: true,
+    crosshairMarkerVisible: false,
+    visible: false
+  });
+
+  benchSeriesMap['FTSEMIB.MI'] = chart.addLineSeries({
+    color: '#f59e0b',
+    lineWidth: 2,
+    priceLineVisible: false,
+    lastValueVisible: true,
+    crosshairMarkerVisible: false,
+    visible: false
   });
 
   if (window.ResizeObserver) {
@@ -69,7 +140,7 @@ const initChart = () => {
 };
 
 const updateChartTheme = () => {
-  if (!chart || !lineSeries) return;
+  if (!chart) return;
   const themeColors = getChartThemeColors();
   chart.applyOptions({
     layout: { textColor: themeColors.textColor },
@@ -82,11 +153,48 @@ const updateChartTheme = () => {
       horzLine: { color: themeColors.lineColor }
     }
   });
-  lineSeries.applyOptions({
+  lineSeries?.applyOptions({
     topColor: themeColors.topColor,
     bottomColor: themeColors.bottomColor,
     lineColor: themeColors.lineColor
   });
+  candleSeries?.applyOptions({
+    upColor: themeColors.upColor,
+    downColor: themeColors.downColor,
+    borderUpColor: themeColors.upColor,
+    borderDownColor: themeColors.downColor,
+    wickUpColor: themeColors.upColor,
+    wickDownColor: themeColors.downColor
+  });
+  volumeSeries?.applyOptions({ color: themeColors.volumeColor });
+};
+
+const applyChartData = () => {
+  if (!chart || performanceRawData.length === 0) return;
+
+  if (currentChartType === 'candles') {
+    lineSeries.applyOptions({ visible: false });
+    candleSeries.applyOptions({ visible: true });
+    candleSeries.setData(performanceRawData.map(d => ({
+      time: d.date,
+      open: d.open || (d.value * 0.995),
+      high: d.high || (d.value * 1.008),
+      low: d.low || (d.value * 0.992),
+      close: d.value
+    })));
+  } else {
+    candleSeries.applyOptions({ visible: false });
+    lineSeries.applyOptions({ visible: true });
+    lineSeries.setData(performanceRawData.map(d => ({ time: d.date, value: d.value })));
+  }
+
+  volumeSeries.setData(performanceRawData.map((d, i) => ({
+    time: d.date,
+    value: d.volume || (d.value * 50),
+    color: i > 0 && d.value >= performanceRawData[i-1].value ? 'rgba(158, 206, 106, 0.35)' : 'rgba(247, 118, 142, 0.35)'
+  })));
+
+  chart.timeScale().fitContent();
 };
 
 const updateMarketStatus = (statusData = null) => {
@@ -111,7 +219,13 @@ const renderHeatmap = (items) => {
   if (!container) return;
 
   if (!items || items.length === 0) {
-    container.innerHTML = '<div class="text-muted text-xs py-4 text-center">Nessun titolo attivo per la heatmap</div>';
+    container.innerHTML = `
+      <div class="text-muted text-xs py-6 text-center" style="grid-column: 1 / -1;">
+        Nessun titolo attivo per la heatmap. 
+        <button class="btn btn-primary btn-sm mt-2" id="btnHeatmapSeedDemo">🚀 Inizializza Dati Demo</button>
+      </div>
+    `;
+    container.querySelector('#btnHeatmapSeedDemo')?.addEventListener('click', triggerSeedDemo);
     return;
   }
 
@@ -145,24 +259,74 @@ const renderHeatmap = (items) => {
   }).join('');
 };
 
+const triggerSeedDemo = async () => {
+  try {
+    showLoading('dashboardContent');
+    const res = await api.seedDemo();
+    showToast(res.message || 'Demo caricata con successo!', 'success');
+    loadDashboardData();
+  } catch (e) {
+    showToast(e.message || 'Errore nel caricamento della demo', 'error');
+  } finally {
+    hideLoading('dashboardContent');
+  }
+};
+
 const loadPerformanceChart = async (days = 30) => {
-  if (!lineSeries) return;
+  if (!chart) return;
   try {
     const performance = await api.getPerformance(days).catch(() => ({ data: [] }));
     if (performance.data && performance.data.length > 0) {
-      const chartData = performance.data.map(d => ({ time: d.date, value: d.value }));
-      lineSeries.setData(chartData);
-      chart.timeScale().fitContent();
+      performanceRawData = performance.data;
+      applyChartData();
     }
   } catch (e) {
     console.error('Errore storico performance:', e);
   }
 };
 
+const loadRiskMetrics = async () => {
+  const container = document.getElementById('riskMetricsRow');
+  if (!container) return;
+
+  try {
+    const metrics = await api.getRiskMetrics(180).catch(() => ({}));
+    if (!metrics || Object.keys(metrics).length === 0) {
+      container.innerHTML = '<div class="text-muted text-xs py-2 text-center" style="grid-column: 1 / -1;">Metriche calcolate dopo l\'inserimento di posizioni storiche.</div>';
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="stat-card p-3" style="background: var(--surface-hover);">
+        <div class="text-xs text-muted">Max Drawdown</div>
+        <div class="text-lg font-bold font-mono text-loss mt-1">${formatPercent(metrics.max_drawdown || 0)}</div>
+        <div class="text-[11px] text-muted mt-0.5">Picco-minimo</div>
+      </div>
+      <div class="stat-card p-3" style="background: var(--surface-hover);">
+        <div class="text-xs text-muted">Volatilità Annua</div>
+        <div class="text-lg font-bold font-mono text-primary mt-1">${(metrics.annualized_volatility || 0).toFixed(1)}%</div>
+        <div class="text-[11px] text-muted mt-0.5">Deviazione std</div>
+      </div>
+      <div class="stat-card p-3" style="background: var(--surface-hover);">
+        <div class="text-xs text-muted">Sharpe Ratio</div>
+        <div class="text-lg font-bold font-mono ${(metrics.sharpe_ratio || 0) >= 1 ? 'text-profit' : 'text-primary'} mt-1">${(metrics.sharpe_ratio || 0).toFixed(2)}</div>
+        <div class="text-[11px] text-muted mt-0.5">Rendimento / Rischio</div>
+      </div>
+      <div class="stat-card p-3" style="background: var(--surface-hover);">
+        <div class="text-xs text-muted">Beta Pesato</div>
+        <div class="text-lg font-bold font-mono text-primary mt-1">${(metrics.weighted_beta || 1.0).toFixed(2)}</div>
+        <div class="text-[11px] text-muted mt-0.5">Sensibilità mercato</div>
+      </div>
+    `;
+  } catch (e) {
+    console.error('Errore metriche rischio:', e);
+  }
+};
+
 const loadDashboardData = async (isSilentRefresh = false) => {
   try {
     if (!isSilentRefresh) {
-      showLoading('dashboardContent');
+      renderSkeletons();
     }
     
     const [dashData, portfolio, heatmap, advice] = await Promise.all([
@@ -213,6 +377,7 @@ const loadDashboardData = async (isSilentRefresh = false) => {
 
     // 2. Chart
     await loadPerformanceChart(currentChartDays);
+    loadRiskMetrics();
 
     // 3. Heatmap
     renderHeatmap(heatmap);
@@ -221,7 +386,18 @@ const loadDashboardData = async (isSilentRefresh = false) => {
     const tbody = document.getElementById('holdingsTableBody');
     if (tbody) {
       if (portfolio.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-6">Nessun titolo nel portafoglio. Clicca su <strong>"Gestisci Portafoglio"</strong> per aggiungere la prima posizione.</td></tr>';
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="7" class="text-center text-muted py-6">
+              Nessun titolo nel portafoglio. 
+              <div class="mt-2 flex justify-center gap-2">
+                <a href="/static/portfolio.html" class="btn btn-primary btn-sm">➕ Aggiungi Holding</a>
+                <button class="btn btn-ghost btn-sm" id="btnTableSeedDemo">🚀 Prova Demo</button>
+              </div>
+            </td>
+          </tr>
+        `;
+        tbody.querySelector('#btnTableSeedDemo')?.addEventListener('click', triggerSeedDemo);
       } else {
         tbody.innerHTML = portfolio.slice(0, 6).map(item => {
           const pnl = item.pnl_absolute ?? 0;
@@ -300,10 +476,6 @@ const loadDashboardData = async (isSilentRefresh = false) => {
       showToast('Errore nel caricamento della dashboard', 'error');
     }
     console.error('Errore dashboard:', error);
-  } finally {
-    if (!isSilentRefresh) {
-      hideLoading('dashboardContent');
-    }
   }
 };
 
@@ -316,15 +488,73 @@ document.addEventListener('DOMContentLoaded', () => {
     updateChartTheme();
   });
 
-  // Timeframe selector
+  // Timeframe selector with persistence
   const tfGroup = document.getElementById('dashboardTimeframeGroup');
   if (tfGroup) {
     tfGroup.querySelectorAll('.timeframe-btn').forEach(btn => {
+      const d = parseInt(btn.dataset.days);
+      if (d === currentChartDays) {
+        tfGroup.querySelectorAll('.timeframe-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      }
+
       btn.addEventListener('click', () => {
         tfGroup.querySelectorAll('.timeframe-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         currentChartDays = parseInt(btn.dataset.days) || 30;
+        localStorage.setItem('dashboard_timeframe', currentChartDays);
         loadPerformanceChart(currentChartDays);
+      });
+    });
+  }
+
+  // Chart type switcher
+  const chartTypeGroup = document.getElementById('chartTypeGroup');
+  if (chartTypeGroup) {
+    chartTypeGroup.querySelectorAll('.chart-type-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        chartTypeGroup.querySelectorAll('.chart-type-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentChartType = btn.dataset.type;
+        applyChartData();
+      });
+    });
+  }
+
+  // Benchmark switcher
+  const benchChips = document.getElementById('benchmarkChips');
+  if (benchChips) {
+    benchChips.querySelectorAll('.bench-chip').forEach(chip => {
+      chip.addEventListener('click', async () => {
+        benchChips.querySelectorAll('.bench-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        activeBenchmark = chip.dataset.bench;
+
+        if (activeBenchmark === 'none') {
+          benchSeriesMap['^GSPC']?.applyOptions({ visible: false });
+          benchSeriesMap['FTSEMIB.MI']?.applyOptions({ visible: false });
+        } else {
+          try {
+            const benchData = await api.getBenchmarks(currentChartDays);
+            if (activeBenchmark === '^GSPC' || activeBenchmark === 'both') {
+              const spData = benchData.benchmarks?.['^GSPC'] || [];
+              benchSeriesMap['^GSPC']?.applyOptions({ visible: true });
+              benchSeriesMap['^GSPC']?.setData(spData.map(p => ({ time: p.date, value: p.value })));
+            } else {
+              benchSeriesMap['^GSPC']?.applyOptions({ visible: false });
+            }
+
+            if (activeBenchmark === 'FTSEMIB.MI' || activeBenchmark === 'both') {
+              const mibData = benchData.benchmarks?.['FTSEMIB.MI'] || [];
+              benchSeriesMap['FTSEMIB.MI']?.applyOptions({ visible: true });
+              benchSeriesMap['FTSEMIB.MI']?.setData(mibData.map(p => ({ time: p.date, value: p.value })));
+            } else {
+              benchSeriesMap['FTSEMIB.MI']?.applyOptions({ visible: false });
+            }
+          } catch (e) {
+            console.error('Errore benchmark:', e);
+          }
+        }
       });
     });
   }
