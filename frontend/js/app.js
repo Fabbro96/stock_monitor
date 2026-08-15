@@ -93,7 +93,68 @@ export const hideLoading = (elementId = null) => {
   }
 };
 
+// ==========================================
+// Theme Management (Tokyo Night & Catppuccin)
+// ==========================================
+export const getTheme = () => localStorage.getItem('app_theme') || 'dark';
+
+export const getChartThemeColors = () => {
+  const isLight = getTheme() === 'light';
+  return {
+    textColor: isLight ? '#6c6f85' : '#9aa5ce',
+    gridColor: isLight ? 'rgba(220, 224, 232, 0.7)' : 'rgba(41, 46, 66, 0.6)',
+    lineColor: isLight ? '#1e66f5' : '#7aa2f7',
+    topColor: isLight ? 'rgba(30, 102, 245, 0.25)' : 'rgba(122, 162, 247, 0.35)',
+    bottomColor: isLight ? 'rgba(30, 102, 245, 0.01)' : 'rgba(122, 162, 247, 0.01)'
+  };
+};
+
+export const updateThemeToggleButton = () => {
+  const btn = document.getElementById('btnThemeToggle');
+  if (!btn) return;
+  const isLight = getTheme() === 'light';
+  btn.innerHTML = isLight 
+    ? '<span>☀️ Catppuccin</span>' 
+    : '<span>🌙 Tokyo Night</span>';
+  btn.title = isLight ? 'Passa al tema scuro (Tokyo Night)' : 'Passa al tema chiaro (Catppuccin Latte)';
+};
+
+export const setTheme = (theme) => {
+  localStorage.setItem('app_theme', theme);
+  document.documentElement.setAttribute('data-theme', theme);
+  updateThemeToggleButton();
+  window.dispatchEvent(new CustomEvent('themeChanged', { detail: { theme } }));
+};
+
+export const toggleTheme = () => {
+  const current = getTheme();
+  const next = current === 'light' ? 'dark' : 'light';
+  setTheme(next);
+};
+window.toggleTheme = toggleTheme;
+
+const initTheme = () => {
+  const saved = getTheme();
+  document.documentElement.setAttribute('data-theme', saved);
+
+  // Inject Theme Toggle into Topbar
+  const topbar = document.querySelector('.topbar');
+  if (topbar && !document.getElementById('btnThemeToggle')) {
+    const toggleContainer = document.createElement('div');
+    toggleContainer.className = 'flex items-center gap-2';
+    toggleContainer.innerHTML = `
+      <button class="theme-toggle-btn" id="btnThemeToggle" onclick="window.toggleTheme()">
+        <span>🌙 Tokyo Night</span>
+      </button>
+    `;
+    topbar.appendChild(toggleContainer);
+    updateThemeToggleButton();
+  }
+};
+
+// ==========================================
 // Global Marquee Ticker
+// ==========================================
 export const initTickerMarquee = async () => {
   const mainContent = document.querySelector('.main-content');
   if (!mainContent) return;
@@ -110,15 +171,12 @@ export const initTickerMarquee = async () => {
     const indices = await api.getIndices().catch(() => []);
     if (!indices || indices.length === 0) return;
 
-    // Cache prezzi precedenti per flash green/red sul marquee
-    const prevPrices = new Map();
-
     const renderItems = (items) => items.map(idx => {
       const isUp = idx.change_percent >= 0;
       const changeClass = isUp ? 'up' : 'down';
       const sign = isUp ? '+' : '';
       return `
-        <div class="ticker-item" data-ticker="${idx.ticker}" onclick="window.openStockModal && window.openStockModal('${idx.ticker}')">
+        <div class="ticker-item" onclick="window.openStockModal && window.openStockModal('${idx.ticker}')">
           <span>${idx.flag || '📊'}</span>
           <span class="ticker-name">${idx.name}</span>
           <span class="ticker-price">${idx.price}</span>
@@ -127,83 +185,24 @@ export const initTickerMarquee = async () => {
       `;
     }).join('');
 
-    const renderTape = () => {
-      // Duplicate track content for seamless infinite marquee loop
-      tapeContainer.innerHTML = `
-        <div class="ticker-tape-track">
-          ${renderItems(indices)}
-          ${renderItems(indices)}
-        </div>
-      `;
-      // Pulse green/red sugli item variati rispetto al refresh precedente
-      tapeContainer.querySelectorAll('.ticker-item').forEach(el => {
-        const tk = el.dataset.ticker;
-        const idx = indices.find(i => i.ticker === tk);
-        if (!idx) return;
-        const prev = prevPrices.get(tk);
-        if (prev !== undefined && Number(idx.price) !== Number(prev)) {
-          el.classList.add(Number(idx.price) > Number(prev) ? 'flash-up' : 'flash-down');
-        }
-        prevPrices.set(tk, Number(idx.price));
-      });
-    };
-
-    renderTape();
-
-    // Refresh periodico del nastro (resiliente: su errore tiene i dati in cache)
-    setInterval(async () => {
-      try {
-        const fresh = await api.getIndices();
-        if (fresh && fresh.length > 0) {
-          indices.length = 0;
-          indices.push(...fresh);
-          renderTape();
-        }
-      } catch (e) { /* silent: marquee resta sui dati noti */ }
-    }, 60000);
+    tapeContainer.innerHTML = `
+      <div class="ticker-tape-track">
+        ${renderItems(indices)}
+        ${renderItems(indices)}
+      </div>
+    `;
   } catch (e) {
     console.debug('Ticker marquee error:', e);
   }
 };
 
+// ==========================================
 // Global Stock Deep Dive Modal
+// ==========================================
 let modalChart = null;
-let modalSeries = null;          // serie prezzo attiva (area oppure candles)
-let modalVolumeSeries = null;    // sub-chart volumi
-let modalBreakevenLine = null;   // linea prezzo medio di carico
+let modalAreaSeries = null;
 let currentModalTicker = null;
 let currentModalTimeframe = '1m';
-let currentModalChartType = 'area'; // 'area' | 'candles'
-
-// Cache portafoglio (per linea breakeven nel grafico)
-let _portfolioCache = null;
-let _portfolioCacheTs = 0;
-const getPortfolioCache = async (maxAgeMs = 60000) => {
-  const now = Date.now();
-  if (_portfolioCache && now - _portfolioCacheTs < maxAgeMs) return _portfolioCache;
-  try {
-    _portfolioCache = await api.getPortfolio();
-    _portfolioCacheTs = now;
-  } catch (e) {
-    _portfolioCache = _portfolioCache || [];
-  }
-  return _portfolioCache;
-};
-const getBreakevenForTicker = async (ticker) => {
-  const portfolio = await getPortfolioCache();
-  const h = (portfolio || []).find(p => p.ticker === ticker);
-  return h && h.avg_purchase_price > 0 ? h.avg_purchase_price : null;
-};
-
-const destroyModalChart = () => {
-  if (modalChart) {
-    try { modalChart.remove(); } catch(e){}
-    modalChart = null;
-    modalSeries = null;
-    modalVolumeSeries = null;
-    modalBreakevenLine = null;
-  }
-};
 
 const injectStockModalHTML = () => {
   if (document.getElementById('stockDeepDiveModal')) return;
@@ -244,53 +243,47 @@ const injectStockModalHTML = () => {
       <!-- Tab Content: Chart -->
       <div id="tab-chart" class="modal-tab-panel">
         <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
-          <div class="chart-toolbar">
-            <div class="timeframe-group" id="modalTimeframeGroup">
-              <button class="timeframe-btn" data-tf="1d">1G</button>
-              <button class="timeframe-btn" data-tf="1w">1S</button>
-              <button class="timeframe-btn active" data-tf="1m">1M</button>
-              <button class="timeframe-btn" data-tf="6m">6M</button>
-              <button class="timeframe-btn" data-tf="1y">1A</button>
-              <button class="timeframe-btn" data-tf="5y">5A</button>
-            </div>
-            <div class="chart-toggle-group" id="modalChartTypeGroup" title="Stile grafico">
-              <button class="chart-toggle-btn active" data-ctype="area">〰 Area</button>
-              <button class="chart-toggle-btn" data-ctype="candles">🕯 Candele</button>
-            </div>
+          <div class="timeframe-group" id="modalTimeframeGroup">
+            <button class="timeframe-btn" data-tf="1d">1G</button>
+            <button class="timeframe-btn" data-tf="1w">1S</button>
+            <button class="timeframe-btn active" data-tf="1m">1M</button>
+            <button class="timeframe-btn" data-tf="6m">6M</button>
+            <button class="timeframe-btn" data-tf="1y">1A</button>
+            <button class="timeframe-btn" data-tf="5y">5A</button>
           </div>
           <div class="flex gap-2">
             <button class="btn btn-ghost btn-sm" id="btnModalAddWatchlist">⭐ Salva in Watchlist</button>
             <button class="btn btn-primary btn-sm" id="btnModalAddHolding">➕ Aggiungi al Portafoglio</button>
           </div>
         </div>
-        <div id="stockModalChart" style="width: 100%; height: 320px; border-radius: 8px; overflow: hidden; background: rgba(0,0,0,0.2);"></div>
+        <div id="stockModalChart" style="width: 100%; height: 320px; border-radius: 8px; overflow: hidden; background: var(--surface-hover);"></div>
       </div>
 
       <!-- Tab Content: Technicals -->
       <div id="tab-technicals" class="modal-tab-panel" style="display: none;">
         <div class="grid gap-3 mb-4" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
-          <div class="card p-3" style="background: rgba(0,0,0,0.2);">
+          <div class="card p-3" style="background: var(--surface-hover);">
             <div class="text-xs text-muted mb-1">RSI (14 Periodi)</div>
             <div class="text-2xl font-bold font-mono" id="smRsiVal">--</div>
             <span class="badge mt-2" id="smRsiBadge">Neutro</span>
           </div>
-          <div class="card p-3" style="background: rgba(0,0,0,0.2);">
+          <div class="card p-3" style="background: var(--surface-hover);">
             <div class="text-xs text-muted mb-1">Media Mobile 20 (SMA 20)</div>
             <div class="text-xl font-bold font-mono" id="smSma20">--</div>
             <div class="text-xs text-secondary mt-1">Trend breve termine</div>
           </div>
-          <div class="card p-3" style="background: rgba(0,0,0,0.2);">
+          <div class="card p-3" style="background: var(--surface-hover);">
             <div class="text-xs text-muted mb-1">Media Mobile 50 (SMA 50)</div>
             <div class="text-xl font-bold font-mono" id="smSma50">--</div>
             <div class="text-xs text-secondary mt-1">Trend medio termine</div>
           </div>
-          <div class="card p-3" style="background: rgba(0,0,0,0.2);">
+          <div class="card p-3" style="background: var(--surface-hover);">
             <div class="text-xs text-muted mb-1">Configurazione Trend</div>
             <div class="text-lg font-bold text-primary mt-1" id="smTrend">--</div>
           </div>
         </div>
 
-        <div class="card p-4" style="background: rgba(0,0,0,0.2);">
+        <div class="card p-4" style="background: var(--surface-hover);">
           <div class="text-xs font-bold text-muted uppercase mb-2">Range 52 Settimane</div>
           <div class="range-bar-container">
             <div class="range-bar-track" style="height: 8px;">
@@ -309,32 +302,32 @@ const injectStockModalHTML = () => {
       <!-- Tab Content: Fundamentals -->
       <div id="tab-fundamentals" class="modal-tab-panel" style="display: none;">
         <div class="grid gap-3 mb-4" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
-          <div class="card p-3" style="background: rgba(0,0,0,0.2);">
+          <div class="card p-3" style="background: var(--surface-hover);">
             <div class="text-xs text-muted">Capitalizzazione</div>
             <div class="text-lg font-bold font-mono mt-1" id="smMarketCap">--</div>
           </div>
-          <div class="card p-3" style="background: rgba(0,0,0,0.2);">
+          <div class="card p-3" style="background: var(--surface-hover);">
             <div class="text-xs text-muted">P/E Ratio (Trailing)</div>
             <div class="text-lg font-bold font-mono mt-1" id="smPe">--</div>
           </div>
-          <div class="card p-3" style="background: rgba(0,0,0,0.2);">
+          <div class="card p-3" style="background: var(--surface-hover);">
             <div class="text-xs text-muted">EPS (Utile per Azione)</div>
             <div class="text-lg font-bold font-mono mt-1" id="smEps">--</div>
           </div>
-          <div class="card p-3" style="background: rgba(0,0,0,0.2);">
+          <div class="card p-3" style="background: var(--surface-hover);">
             <div class="text-xs text-muted">Beta (Volatilità)</div>
             <div class="text-lg font-bold font-mono mt-1" id="smBeta">--</div>
           </div>
-          <div class="card p-3" style="background: rgba(0,0,0,0.2);">
+          <div class="card p-3" style="background: var(--surface-hover);">
             <div class="text-xs text-muted">Dividend Yield</div>
             <div class="text-lg font-bold font-mono text-profit mt-1" id="smDivYield">--%</div>
           </div>
-          <div class="card p-3" style="background: rgba(0,0,0,0.2);">
+          <div class="card p-3" style="background: var(--surface-hover);">
             <div class="text-xs text-muted">Volume Medio</div>
             <div class="text-lg font-bold font-mono mt-1" id="smVolume">--</div>
           </div>
         </div>
-        <div class="card p-3 text-xs text-secondary leading-relaxed" id="smSummary" style="background: rgba(0,0,0,0.2); max-height: 120px; overflow-y: auto;">
+        <div class="card p-3 text-xs text-secondary leading-relaxed" id="smSummary" style="background: var(--surface-hover); max-height: 120px; overflow-y: auto;">
           Nessuna descrizione disponibile per questa società.
         </div>
       </div>
@@ -347,7 +340,7 @@ const injectStockModalHTML = () => {
           </div>
           <button class="btn btn-primary btn-sm" id="btnRunStockAi">⚡ Elabora Analisi Ora</button>
         </div>
-        <div id="stockAiResultContainer" class="card p-4" style="background: rgba(0,0,0,0.25); border-left: 3px solid var(--primary-color);">
+        <div id="stockAiResultContainer" class="card p-4" style="background: var(--surface-hover); border-left: 3px solid var(--primary-color);">
           <div class="text-center text-muted py-6 text-sm">
             Clicca <strong>"Elabora Analisi Ora"</strong> per interrogare l'IA su fondamentali, indicatori tecnici e catalizzatori di mercato.
           </div>
@@ -357,7 +350,7 @@ const injectStockModalHTML = () => {
   `;
   document.body.appendChild(modalEl);
 
-  // Event Listeners for Stock Modal
+  // Listeners
   document.getElementById('closeStockModal').addEventListener('click', () => {
     modalEl.classList.remove('active');
   });
@@ -377,17 +370,6 @@ const injectStockModalHTML = () => {
       modalEl.querySelectorAll('.timeframe-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       currentModalTimeframe = btn.dataset.tf;
-      loadModalChart(currentModalTicker, currentModalTimeframe);
-    });
-  });
-
-  // Toggle stile grafico: Area vs Candele (OHLC) con volumi
-  modalEl.querySelectorAll('.chart-toggle-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      modalEl.querySelectorAll('.chart-toggle-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      currentModalChartType = btn.dataset.ctype;
-      initModalChart();
       loadModalChart(currentModalTicker, currentModalTimeframe);
     });
   });
@@ -422,118 +404,45 @@ const initModalChart = () => {
   const container = document.getElementById('stockModalChart');
   if (!container || typeof LightweightCharts === 'undefined') return;
 
-  destroyModalChart();
+  if (modalChart) {
+    try { modalChart.remove(); } catch(e){}
+  }
 
-  const withVolume = currentModalChartType === 'candles';
+  const themeColors = getChartThemeColors();
 
   modalChart = LightweightCharts.createChart(container, {
     layout: {
       background: { type: 'solid', color: 'transparent' },
-      textColor: '#9aa0c2',
+      textColor: themeColors.textColor,
       fontFamily: 'Inter, system-ui, sans-serif',
       fontSize: 11
     },
     grid: {
-      vertLines: { color: 'rgba(33, 37, 61, 0.5)' },
-      horzLines: { color: 'rgba(33, 37, 61, 0.5)' },
+      vertLines: { color: themeColors.gridColor },
+      horzLines: { color: themeColors.gridColor },
     },
     rightPriceScale: { borderVisible: false },
-    timeScale: { borderVisible: false },
-    crosshair: {
-      vertLine: { color: '#3b82f6', width: 1, style: 3 },
-      horzLine: { color: '#3b82f6', width: 1, style: 3 }
-    }
+    timeScale: { borderVisible: false }
   });
 
-  if (currentModalChartType === 'candles') {
-    modalSeries = modalChart.addCandlestickSeries({
-      upColor: '#10b981',
-      downColor: '#f43f5e',
-      borderUpColor: '#10b981',
-      borderDownColor: '#f43f5e',
-      wickUpColor: '#10b981',
-      wickDownColor: '#f43f5e',
-      priceScaleId: 'right',
-    });
-    // Sub-chart volumi colorati (verde/rosso in base alla direzione della candela)
-    modalVolumeSeries = modalChart.addHistogramSeries({
-      priceFormat: { type: 'volume' },
-      priceScaleId: 'volume',
-      lastValueVisible: false,
-      priceLineVisible: false,
-    });
-    modalChart.priceScale('volume').applyOptions({
-      scaleMargins: { top: 0.8, bottom: 0 },
-    });
-    modalChart.priceScale('right').applyOptions({
-      scaleMargins: { top: 0.08, bottom: 0.25 },
-    });
-  } else {
-    modalSeries = modalChart.addAreaSeries({
-      topColor: 'rgba(59, 130, 246, 0.4)',
-      bottomColor: 'rgba(59, 130, 246, 0.01)',
-      lineColor: '#3b82f6',
-      lineWidth: 2,
-    });
-  }
-
-  // Resize responsivo del grafico modale
-  if (window.ResizeObserver && !container._smResizeObs) {
-    container._smResizeObs = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        if (modalChart && entry.contentRect.width > 0) {
-          modalChart.applyOptions({ width: entry.contentRect.width, height: container.clientHeight || 320 });
-        }
-      }
-    });
-    container._smResizeObs.observe(container);
-  }
+  modalAreaSeries = modalChart.addAreaSeries({
+    topColor: themeColors.topColor,
+    bottomColor: themeColors.bottomColor,
+    lineColor: themeColors.lineColor,
+    lineWidth: 2,
+  });
 };
 
 const loadModalChart = async (ticker, timeframe = '1m') => {
-  if (!modalSeries || !ticker) return;
-  const container = document.getElementById('stockModalChart');
-  // Shimmer skeleton durante il fetch
-  if (container) container.classList.add('skeleton');
+  if (!modalAreaSeries || !ticker) return;
   try {
     const candles = await api.getStockCandles(ticker, timeframe);
     if (candles && candles.length > 0) {
-      if (currentModalChartType === 'candles') {
-        modalSeries.setData(candles.map(c => ({
-          time: c.time, open: c.open, high: c.high, low: c.low, close: c.close
-        })));
-        if (modalVolumeSeries) {
-          modalVolumeSeries.setData(candles.map(c => ({
-            time: c.time,
-            value: c.volume || 0,
-            color: c.close >= c.open ? 'rgba(16, 185, 129, 0.45)' : 'rgba(244, 63, 94, 0.45)'
-          })));
-        }
-      } else {
-        modalSeries.setData(candles.map(c => ({ time: c.time, value: c.close })));
-      }
-
-      // Linea orizzontale tratteggiata: prezzo medio di carico (Breakeven)
-      const breakeven = await getBreakevenForTicker(ticker);
-      if (breakeven) {
-        modalBreakevenLine = modalSeries.createPriceLine({
-          price: breakeven,
-          color: '#f59e0b',
-          lineWidth: 1,
-          lineStyle: LightweightCharts.LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: '⚖ Breakeven',
-        });
-      }
-
+      modalAreaSeries.setData(candles.map(c => ({ time: c.time, value: c.close })));
       modalChart.timeScale().fitContent();
-    } else if (container) {
-      container.innerHTML = '<div class="text-center text-muted text-xs py-8">Nessun dato disponibile (fonte dati non raggiungibile: verrà mostrato l\'ultimo valore noto al prossimo refresh).</div>';
     }
   } catch (e) {
     console.error('Errore caricamento candele modale:', e);
-  } finally {
-    if (container) container.classList.remove('skeleton');
   }
 };
 
@@ -558,11 +467,11 @@ const runModalStockAi = async () => {
         </div>
 
         <div class="grid gap-3 mb-3" style="display: grid; grid-template-columns: 1fr 1fr;">
-          <div class="p-2 rounded border border-border-color" style="background: rgba(0,0,0,0.2);">
+          <div class="p-2.5 rounded border border-border-color" style="background: var(--surface-card);">
             <div class="text-xs text-muted">🎯 Target Price Stimato</div>
             <div class="text-lg font-bold text-primary font-mono">${formatCurrency(result.target_price)} <span class="text-xs text-profit">(+${result.upside_potential_pct || 0}%)</span></div>
           </div>
-          <div class="p-2 rounded border border-border-color" style="background: rgba(0,0,0,0.2);">
+          <div class="p-2.5 rounded border border-border-color" style="background: var(--surface-card);">
             <div class="text-xs text-muted">🛡️ Stop Loss Consigliato</div>
             <div class="text-lg font-bold text-danger font-mono">${result.stop_loss ? formatCurrency(result.stop_loss) : '--'}</div>
           </div>
@@ -571,17 +480,17 @@ const runModalStockAi = async () => {
         <p class="text-sm text-primary leading-relaxed mb-3">${result.summary || ''}</p>
 
         <div class="grid gap-2 text-xs mb-3" style="display: grid; grid-template-columns: 1fr 1fr;">
-          <div class="p-2.5 rounded" style="background: rgba(16, 185, 129, 0.08); border-left: 2px solid var(--success-color);">
+          <div class="p-2.5 rounded" style="background: var(--success-bg); border-left: 2px solid var(--success-color);">
             <strong class="text-profit block mb-1">🟢 Bull Case & Punti di Forza</strong>
             <span class="text-secondary leading-normal">${result.bull_case || '--'}</span>
           </div>
-          <div class="p-2.5 rounded" style="background: rgba(244, 63, 94, 0.08); border-left: 2px solid var(--danger-color);">
+          <div class="p-2.5 rounded" style="background: var(--danger-bg); border-left: 2px solid var(--danger-color);">
             <strong class="text-loss block mb-1">🔴 Bear Case & Rischi Chiave</strong>
             <span class="text-secondary leading-normal">${result.bear_case || '--'}</span>
           </div>
         </div>
 
-        <div class="p-2.5 rounded border border-border-color" style="background: rgba(0,0,0,0.3);">
+        <div class="p-2.5 rounded border border-border-color" style="background: var(--surface-card);">
           <strong class="text-xs text-primary block mb-1">💡 Strategia Operativa Suggerita</strong>
           <span class="text-xs text-secondary leading-normal">${result.operational_strategy || '--'}</span>
         </div>
@@ -603,7 +512,6 @@ export const openStockModal = async (ticker) => {
   const modal = document.getElementById('stockDeepDiveModal');
   modal.classList.add('active');
 
-  // Reset modal tab to first
   modal.querySelectorAll('.modal-tab-btn').forEach((b, idx) => {
     if (idx === 0) b.classList.add('active');
     else b.classList.remove('active');
@@ -612,7 +520,6 @@ export const openStockModal = async (ticker) => {
     p.style.display = idx === 0 ? 'block' : 'none';
   });
 
-  // Reset header data
   document.getElementById('smTicker').textContent = currentModalTicker;
   document.getElementById('smName').textContent = 'Caricamento dati...';
   document.getElementById('smPrice').textContent = '--';
@@ -637,7 +544,6 @@ export const openStockModal = async (ticker) => {
 
     document.getElementById('smFlag').textContent = data.market === 'IT' ? '🇮🇹' : '🇺🇸';
 
-    // Technicals
     const tech = data.technical || {};
     document.getElementById('smRsiVal').textContent = tech.rsi_14 || '--';
     const rsiBadge = document.getElementById('smRsiBadge');
@@ -648,7 +554,6 @@ export const openStockModal = async (ticker) => {
     document.getElementById('smSma50').textContent = tech.sma_50 ? formatCurrency(tech.sma_50, data.currency) : '--';
     document.getElementById('smTrend').textContent = tech.trend || 'Neutro';
 
-    // 52W Range
     document.getElementById('sm52Low').textContent = formatCurrency(data.fifty_two_week_low, data.currency);
     document.getElementById('sm52High').textContent = formatCurrency(data.fifty_two_week_high, data.currency);
     const pin = document.getElementById('sm52Pin');
@@ -656,7 +561,6 @@ export const openStockModal = async (ticker) => {
     pin.style.left = `${pct}%`;
     document.getElementById('sm52Pos').textContent = `Posizione: ${pct}%`;
 
-    // Fundamentals
     document.getElementById('smMarketCap').textContent = formatCompactNumber(data.market_cap);
     document.getElementById('smPe').textContent = data.pe_ratio || '--';
     document.getElementById('smEps').textContent = data.eps ? formatCurrency(data.eps, data.currency) : '--';
@@ -688,40 +592,9 @@ const initSidebar = () => {
   const toggle = document.querySelector('.mobile-toggle');
   const sidebar = document.querySelector('.sidebar');
   if (toggle && sidebar) {
-    // Backdrop per drawer mobile (chiusura con tap esterno)
-    let backdrop = document.querySelector('.sidebar-backdrop');
-    if (!backdrop) {
-      backdrop = document.createElement('div');
-      backdrop.className = 'sidebar-backdrop';
-      document.body.appendChild(backdrop);
-    }
-    const setDrawer = (open) => {
-      sidebar.classList.toggle('open', open);
-      backdrop.classList.toggle('visible', open);
-    };
-    toggle.addEventListener('click', () => setDrawer(!sidebar.classList.contains('open')));
-    backdrop.addEventListener('click', () => setDrawer(false));
-    // Chiusura drawer quando si clicca un link di navigazione (mobile)
-    sidebar.querySelectorAll('.nav-link').forEach(link => {
-      link.addEventListener('click', () => setDrawer(false));
+    toggle.addEventListener('click', () => {
+      sidebar.classList.toggle('open');
     });
-    // Touch gestures: swipe da bordo sinistro per aprire, swipe a sinistra per chiudere
-    let touchStartX = 0;
-    let touchStartY = 0;
-    document.addEventListener('touchstart', (e) => {
-      touchStartX = e.touches[0].clientX;
-      touchStartY = e.touches[0].clientY;
-    }, { passive: true });
-    document.addEventListener('touchend', (e) => {
-      const dx = e.changedTouches[0].clientX - touchStartX;
-      const dy = e.changedTouches[0].clientY - touchStartY;
-      if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx)) return; // solo swipe orizzontali decisi
-      if (dx > 0 && touchStartX < 32 && !sidebar.classList.contains('open')) {
-        setDrawer(true);   // swipe verso destra dal bordo: apre
-      } else if (dx < 0 && sidebar.classList.contains('open')) {
-        setDrawer(false);  // swipe verso sinistra: chiude
-      }
-    }, { passive: true });
   }
 
   // Add User Footer to Sidebar
@@ -774,10 +647,30 @@ const loadGoogleFont = () => {
 
 document.addEventListener('DOMContentLoaded', () => {
   loadGoogleFont();
+  initTheme();
   initSidebar();
   checkAuth();
   initTickerMarquee();
   injectStockModalHTML();
+
+  // Listen for theme changes to update modal chart
+  window.addEventListener('themeChanged', () => {
+    if (modalChart && modalAreaSeries) {
+      const colors = getChartThemeColors();
+      modalChart.applyOptions({
+        layout: { textColor: colors.textColor },
+        grid: {
+          vertLines: { color: colors.gridColor },
+          horzLines: { color: colors.gridColor }
+        }
+      });
+      modalAreaSeries.applyOptions({
+        topColor: colors.topColor,
+        bottomColor: colors.bottomColor,
+        lineColor: colors.lineColor
+      });
+    }
+  });
 
   // Attach global click listener for stock tickers
   document.addEventListener('click', (e) => {

@@ -1,56 +1,109 @@
-:root {
-  --bg-color: #080911;
-  --bg-secondary: #0d0f1a;
-  --surface-color: #121424;
-  --surface-card: rgba(18, 20, 36, 0.85);
-  --surface-hover: #191c32;
-  --surface-active: #202440;
-  --border-color: #21253d;
-  --border-subtle: rgba(255, 255, 255, 0.07);
-  --border-focus: #3b82f6;
-  
-  --text-primary: #f3f4f8;
-  --text-secondary: #9aa0c2;
-  --text-muted: #606689;
-  
-  --primary-color: #3b82f6;
-  --primary-hover: #2563eb;
-  --primary-glow: rgba(59, 130, 246, 0.35);
-  
-  --cyan-color: #06b6d4;
-  --cyan-glow: rgba(6, 182, 212, 0.25);
-  
-  --success-color: #10b981;
-  --success-bg: rgba(16, 185, 129, 0.12);
-  --success-border: rgba(16, 185, 129, 0.35);
-  --success-glow: rgba(16, 185, 129, 0.25);
-  
-  --danger-color: #f43f5e;
-  --danger-bg: rgba(244, 63, 94, 0.12);
-  --danger-border: rgba(244, 63, 94, 0.35);
-  --danger-glow: rgba(244, 63, 94, 0.25);
-  
-  --warning-color: #f59e0b;
-  --warning-bg: rgba(245, 158, 11, 0.12);
-  --warning-border: rgba(245, 158, 11, 0.35);
-  
-  --purple-color: #8b5cf6;
-  --purple-bg: rgba(139, 92, 246, 0.12);
+/* ==========================================================================
+   Stock Monitor - Nordic Minimal Design System
+   Themes: Tokyo Night (Dark Default) & Catppuccin Latte (Light)
+   ========================================================================== */
 
-  --font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+:root {
+  /* Tokyo Night Theme (Default Dark) */
+  --bg-color: #16161e;
+  --bg-secondary: #1a1b26;
+  --surface-color: #1f2335;
+  --surface-card: rgba(31, 35, 53, 0.85);
+  --surface-hover: #24283b;
+  --surface-active: #2f354d;
+  --border-color: #292e42;
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-focus: #7aa2f7;
+  
+  --text-primary: #c0caf5;
+  --text-secondary: #9aa5ce;
+  --text-muted: #565f89;
+  
+  --primary-color: #7aa2f7;
+  --primary-hover: #89b4fa;
+  --primary-glow: rgba(122, 162, 247, 0.25);
+  
+  --cyan-color: #7dcfff;
+  --cyan-glow: rgba(125, 207, 255, 0.2);
+  
+  --success-color: #9ece6a;
+  --success-bg: rgba(158, 206, 106, 0.12);
+  --success-border: rgba(158, 206, 106, 0.3);
+  --success-glow: rgba(158, 206, 106, 0.2);
+  
+  --danger-color: #f7768e;
+  --danger-bg: rgba(247, 118, 142, 0.12);
+  --danger-border: rgba(247, 118, 142, 0.3);
+  --danger-glow: rgba(247, 118, 142, 0.2);
+  
+  --warning-color: #e0af68;
+  --warning-bg: rgba(224, 175, 104, 0.12);
+  --warning-border: rgba(224, 175, 104, 0.3);
+  
+  --purple-color: #bb9af7;
+  --purple-bg: rgba(187, 154, 247, 0.12);
+
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   
-  --radius-card: 12px;
+  --radius-card: 14px;
   --radius-input: 8px;
   --radius-pill: 9999px;
   
-  --shadow-sm: 0 2px 4px 0 rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 6px 16px -2px rgba(0, 0, 0, 0.6), 0 2px 6px -1px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 16px 32px -4px rgba(0, 0, 0, 0.75), 0 6px 16px -2px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 2px 4px 0 rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 6px 16px -2px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 16px 32px -4px rgba(0, 0, 0, 0.5);
   --shadow-glow: 0 0 20px -3px var(--primary-glow);
   
-  --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   --sidebar-width: 240px;
+}
+
+/* ==========================================================================
+   Catppuccin Latte Theme (Light)
+   ========================================================================== */
+[data-theme="light"] {
+  --bg-color: #eff1f5;
+  --bg-secondary: #e6e9ef;
+  --surface-color: #ffffff;
+  --surface-card: rgba(255, 255, 255, 0.92);
+  --surface-hover: #f0f2f7;
+  --surface-active: #e6e9ef;
+  --border-color: #dce0e8;
+  --border-subtle: rgba(0, 0, 0, 0.05);
+  --border-focus: #1e66f5;
+  
+  --text-primary: #4c4f69;
+  --text-secondary: #6c6f85;
+  --text-muted: #9ca0b0;
+  
+  --primary-color: #1e66f5;
+  --primary-hover: #04a5e5;
+  --primary-glow: rgba(30, 102, 245, 0.15);
+  
+  --cyan-color: #179299;
+  --cyan-glow: rgba(23, 146, 153, 0.15);
+  
+  --success-color: #40a02b;
+  --success-bg: rgba(64, 160, 43, 0.1);
+  --success-border: rgba(64, 160, 43, 0.25);
+  --success-glow: rgba(64, 160, 43, 0.15);
+  
+  --danger-color: #d20f39;
+  --danger-bg: rgba(210, 15, 57, 0.1);
+  --danger-border: rgba(210, 15, 57, 0.25);
+  --danger-glow: rgba(210, 15, 57, 0.15);
+  
+  --warning-color: #df8e1d;
+  --warning-bg: rgba(223, 142, 29, 0.1);
+  --warning-border: rgba(223, 142, 29, 0.25);
+  
+  --purple-color: #8839ef;
+  --purple-bg: rgba(136, 57, 239, 0.1);
+  
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 28px -4px rgba(0, 0, 0, 0.12);
 }
 
 /* Reset & Base */
@@ -69,25 +122,26 @@ body, html {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
 /* Scrollbars */
 ::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--bg-color);
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #232742;
+  background: var(--border-color);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #343a60;
+  background: var(--text-muted);
 }
 
-/* App Shell Layout */
+/* Layout */
 .app-container {
   display: flex;
   height: 100vh;
@@ -111,11 +165,10 @@ body, html {
   align-items: center;
   padding: 0 20px;
   border-bottom: 1px solid var(--border-color);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02) 0%, transparent 100%);
 }
 
 .app-title {
-  font-size: 1.25rem;
+  font-size: 1.2rem;
   font-weight: 700;
   color: var(--text-primary);
   display: flex;
@@ -136,11 +189,11 @@ body, html {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 20px;
+  padding: 11px 20px;
   color: var(--text-secondary);
   text-decoration: none;
   font-weight: 500;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   transition: var(--transition);
   border-left: 3px solid transparent;
 }
@@ -151,8 +204,8 @@ body, html {
 }
 
 .nav-link.active {
-  background: linear-gradient(90deg, rgba(59, 130, 246, 0.15) 0%, transparent 100%);
-  color: #fff;
+  background: linear-gradient(90deg, var(--primary-glow) 0%, transparent 100%);
+  color: var(--primary-color);
   border-left-color: var(--primary-color);
   font-weight: 600;
 }
@@ -166,9 +219,9 @@ body, html {
   position: relative;
 }
 
-/* Ticker Marquee Header */
+/* Ticker Marquee Bar */
 .ticker-tape-container {
-  background-color: rgba(13, 15, 26, 0.95);
+  background-color: var(--surface-color);
   border-bottom: 1px solid var(--border-color);
   height: 38px;
   overflow: hidden;
@@ -182,9 +235,9 @@ body, html {
 .ticker-tape-track {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 20px;
   white-space: nowrap;
-  animation: marquee 40s linear infinite;
+  animation: marquee 42s linear infinite;
   will-change: transform;
 }
 
@@ -204,14 +257,14 @@ body, html {
   font-size: 0.82rem;
   padding: 3px 10px;
   border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface-hover);
   border: 1px solid var(--border-subtle);
   cursor: pointer;
   transition: var(--transition);
 }
 
 .ticker-item:hover {
-  background: rgba(59, 130, 246, 0.15);
+  background: var(--surface-active);
   border-color: var(--primary-color);
   transform: translateY(-1px);
 }
@@ -228,7 +281,7 @@ body, html {
 
 .ticker-change {
   font-family: var(--font-mono);
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   font-weight: 600;
   padding: 1px 5px;
   border-radius: 4px;
@@ -251,7 +304,7 @@ body, html {
   align-items: center;
   justify-content: space-between;
   padding: 0 28px;
-  background-color: rgba(18, 20, 36, 0.85);
+  background-color: var(--surface-card);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--border-color);
@@ -261,7 +314,7 @@ body, html {
 }
 
 .page-title {
-  font-size: 1.45rem;
+  font-size: 1.35rem;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--text-primary);
@@ -275,10 +328,11 @@ body, html {
   margin: 0 auto;
 }
 
-/* Cards & Glassmorphism */
+/* Nordic Minimal Cards */
 .card {
   background-color: var(--surface-card);
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-card);
   padding: 22px;
@@ -289,7 +343,11 @@ body, html {
 
 .card:hover {
   box-shadow: var(--shadow-md);
-  border-color: rgba(59, 130, 246, 0.25);
+  border-color: rgba(122, 162, 247, 0.35);
+}
+
+[data-theme="light"] .card:hover {
+  border-color: rgba(30, 102, 245, 0.35);
 }
 
 .card-header {
@@ -300,7 +358,7 @@ body, html {
 }
 
 .card-title {
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   font-weight: 600;
   color: var(--text-primary);
   display: flex;
@@ -318,16 +376,16 @@ body, html {
 }
 
 .stat-card {
-  background: linear-gradient(145deg, rgba(25, 28, 48, 0.7) 0%, rgba(18, 20, 36, 0.95) 100%);
+  background-color: var(--surface-card);
   border: 1px solid var(--border-color);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  padding: 18px;
+  padding: 18px 20px;
   border-radius: var(--radius-card);
   position: relative;
   overflow: hidden;
+  transition: var(--transition);
 }
 
-.stat-card::before {
+.stat-card::after {
   content: '';
   position: absolute;
   top: 0;
@@ -335,11 +393,11 @@ body, html {
   right: 0;
   height: 2px;
   background: linear-gradient(90deg, transparent, var(--primary-color), transparent);
-  opacity: 0.4;
+  opacity: 0.3;
 }
 
 .stat-value {
-  font-size: 1.75rem;
+  font-size: 1.7rem;
   font-weight: 700;
   margin-top: 6px;
   letter-spacing: -0.03em;
@@ -349,7 +407,7 @@ body, html {
 
 .stat-label {
   color: var(--text-secondary);
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -366,6 +424,28 @@ body, html {
   display: block;
 }
 
+/* Theme Switcher Button */
+.theme-toggle-btn {
+  background: var(--surface-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: var(--transition);
+}
+
+.theme-toggle-btn:hover {
+  background: var(--surface-active);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
 /* Buttons */
 .btn {
   display: inline-flex;
@@ -373,7 +453,7 @@ body, html {
   justify-content: center;
   gap: 8px;
   padding: 8px 16px;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 600;
   border-radius: var(--radius-input);
   border: 1px solid transparent;
@@ -386,25 +466,29 @@ body, html {
 .btn-primary {
   background-color: var(--primary-color);
   color: #fff;
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
+  box-shadow: var(--shadow-sm);
+}
+
+[data-theme="dark"] .btn-primary {
+  color: #16161e;
 }
 
 .btn-primary:hover {
   background-color: var(--primary-hover);
-  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.5);
+  box-shadow: 0 4px 14px var(--primary-glow);
   transform: translateY(-1px);
 }
 
 .btn-ghost {
-  background-color: rgba(255, 255, 255, 0.04);
+  background-color: var(--surface-hover);
   color: var(--text-primary);
   border-color: var(--border-color);
 }
 
 .btn-ghost:hover {
-  background-color: var(--surface-hover);
+  background-color: var(--surface-active);
   border-color: var(--primary-color);
-  color: #fff;
+  color: var(--primary-color);
 }
 
 .btn-sm {
@@ -414,8 +498,12 @@ body, html {
 
 .btn-success {
   background-color: var(--success-color);
-  color: #000;
+  color: #fff;
   font-weight: 700;
+}
+
+[data-theme="dark"] .btn-success {
+  color: #16161e;
 }
 
 .btn-danger {
@@ -426,38 +514,39 @@ body, html {
 /* Heatmap Grid */
 .heatmap-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 10px;
 }
 
 .heatmap-tile {
   padding: 12px;
-  border-radius: 8px;
+  border-radius: 10px;
   border: 1px solid var(--border-subtle);
   cursor: pointer;
   transition: var(--transition);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  min-height: 80px;
+  min-height: 82px;
   position: relative;
   overflow: hidden;
+  background-color: var(--surface-card);
 }
 
 .heatmap-tile:hover {
   transform: translateY(-2px) scale(1.02);
   z-index: 10;
   box-shadow: var(--shadow-md);
-  border-color: rgba(255, 255, 255, 0.3);
+  border-color: var(--primary-color);
 }
 
-.tile-gain-high { background: linear-gradient(135deg, rgba(16, 185, 129, 0.35), rgba(16, 185, 129, 0.15)); border-color: rgba(16, 185, 129, 0.4); }
-.tile-gain-mid { background: linear-gradient(135deg, rgba(16, 185, 129, 0.22), rgba(16, 185, 129, 0.08)); border-color: rgba(16, 185, 129, 0.3); }
-.tile-gain-low { background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(16, 185, 129, 0.04)); border-color: rgba(16, 185, 129, 0.2); }
-.tile-loss-low { background: linear-gradient(135deg, rgba(244, 63, 94, 0.12), rgba(244, 63, 94, 0.04)); border-color: rgba(244, 63, 94, 0.2); }
-.tile-loss-mid { background: linear-gradient(135deg, rgba(244, 63, 94, 0.22), rgba(244, 63, 94, 0.08)); border-color: rgba(244, 63, 94, 0.3); }
-.tile-loss-high { background: linear-gradient(135deg, rgba(244, 63, 94, 0.35), rgba(244, 63, 94, 0.15)); border-color: rgba(244, 63, 94, 0.4); }
-.tile-neutral { background: var(--surface-card); border-color: var(--border-color); }
+.tile-gain-high { background: linear-gradient(135deg, rgba(158, 206, 106, 0.3), rgba(158, 206, 106, 0.12)); border-color: rgba(158, 206, 106, 0.35); }
+.tile-gain-mid { background: linear-gradient(135deg, rgba(158, 206, 106, 0.2), rgba(158, 206, 106, 0.06)); border-color: rgba(158, 206, 106, 0.25); }
+.tile-gain-low { background: linear-gradient(135deg, rgba(158, 206, 106, 0.1), rgba(158, 206, 106, 0.03)); border-color: rgba(158, 206, 106, 0.18); }
+.tile-loss-low { background: linear-gradient(135deg, rgba(247, 118, 142, 0.1), rgba(247, 118, 142, 0.03)); border-color: rgba(247, 118, 142, 0.18); }
+.tile-loss-mid { background: linear-gradient(135deg, rgba(247, 118, 142, 0.2), rgba(247, 118, 142, 0.06)); border-color: rgba(247, 118, 142, 0.25); }
+.tile-loss-high { background: linear-gradient(135deg, rgba(247, 118, 142, 0.3), rgba(247, 118, 142, 0.12)); border-color: rgba(247, 118, 142, 0.35); }
+.tile-neutral { background-color: var(--surface-card); border-color: var(--border-color); }
 
 /* Tables */
 .table-container {
@@ -473,12 +562,12 @@ table {
 
 th {
   padding: 12px 14px;
-  background-color: rgba(13, 15, 26, 0.6);
+  background-color: var(--surface-hover);
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -504,7 +593,7 @@ tbody tr:hover {
   gap: 4px;
   padding: 3px 8px;
   border-radius: var(--radius-pill);
-  font-size: 0.75rem;
+  font-size: 0.74rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -529,12 +618,12 @@ tbody tr:hover {
 }
 
 .badge-cyan {
-  background-color: rgba(6, 182, 212, 0.12);
+  background-color: rgba(125, 207, 255, 0.12);
   color: var(--cyan-color);
-  border: 1px solid rgba(6, 182, 212, 0.35);
+  border: 1px solid rgba(125, 207, 255, 0.3);
 }
 
-/* Utility Colors & Fonts */
+/* Utilities */
 .text-profit { color: var(--success-color) !important; }
 .text-loss { color: var(--danger-color) !important; }
 .text-warning { color: var(--warning-color) !important; }
@@ -576,7 +665,7 @@ tbody tr:hover {
 }
 
 .stock-ticker-link:hover {
-  color: #60a5fa;
+  color: var(--primary-hover);
   text-decoration: underline;
 }
 
@@ -590,7 +679,8 @@ tbody tr:hover {
 
 .range-bar-track {
   height: 6px;
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: var(--surface-hover);
+  border: 1px solid var(--border-color);
   border-radius: 3px;
   position: relative;
   overflow: hidden;
@@ -607,9 +697,9 @@ tbody tr:hover {
   top: -2px;
   width: 4px;
   height: 10px;
-  background-color: #fff;
+  background-color: var(--text-primary);
   border-radius: 2px;
-  box-shadow: 0 0 4px #000;
+  box-shadow: 0 0 4px rgba(0,0,0,0.5);
   transform: translateX(-50%);
 }
 
@@ -628,7 +718,7 @@ tbody tr:hover {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(4, 5, 10, 0.8);
+  background: rgba(10, 12, 20, 0.75);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   display: flex;
@@ -637,7 +727,7 @@ tbody tr:hover {
   z-index: 1000;
   opacity: 0;
   visibility: hidden;
-  transition: all 0.25s ease-out;
+  transition: all 0.22s ease-out;
   padding: 16px;
 }
 
@@ -649,14 +739,14 @@ tbody tr:hover {
 .modal-content {
   background: var(--surface-color);
   border: 1px solid var(--border-color);
-  border-radius: 16px;
+  border-radius: 18px;
   width: 100%;
   max-width: 580px;
   max-height: 90vh;
   overflow-y: auto;
-  padding: 24px;
+  padding: 26px;
   box-shadow: var(--shadow-lg);
-  transform: scale(0.95);
+  transform: scale(0.96);
   transition: var(--transition);
 }
 
@@ -670,11 +760,11 @@ tbody tr:hover {
   align-items: center;
   margin-bottom: 20px;
   border-bottom: 1px solid var(--border-color);
-  padding-bottom: 12px;
+  padding-bottom: 14px;
 }
 
 .modal-title {
-  font-size: 1.25rem;
+  font-size: 1.2rem;
   font-weight: 700;
   color: var(--text-primary);
   display: flex;
@@ -686,7 +776,7 @@ tbody tr:hover {
   background: none;
   border: none;
   color: var(--text-muted);
-  font-size: 1.6rem;
+  font-size: 1.5rem;
   cursor: pointer;
   line-height: 1;
   padding: 0 4px;
@@ -697,7 +787,6 @@ tbody tr:hover {
   color: var(--danger-color);
 }
 
-/* Stock Deep Dive Modal Specifics */
 .stock-modal-large {
   max-width: 920px !important;
 }
@@ -715,7 +804,7 @@ tbody tr:hover {
   color: var(--text-secondary);
   padding: 8px 16px;
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   cursor: pointer;
   border-bottom: 2px solid transparent;
   transition: var(--transition);
@@ -733,10 +822,10 @@ tbody tr:hover {
 /* Timeframe Pills */
 .timeframe-group {
   display: inline-flex;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--surface-hover);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-pill);
-  padding: 2px;
+  padding: 3px;
   gap: 2px;
 }
 
@@ -753,14 +842,18 @@ tbody tr:hover {
 }
 
 .timeframe-btn:hover {
-  color: #fff;
-  background: var(--surface-hover);
+  color: var(--text-primary);
+  background: var(--surface-active);
 }
 
 .timeframe-btn.active {
   background: var(--primary-color);
   color: #fff;
   box-shadow: 0 1px 4px var(--primary-glow);
+}
+
+[data-theme="dark"] .timeframe-btn.active {
+  color: #16161e;
 }
 
 /* Status Indicators */
@@ -786,7 +879,7 @@ tbody tr:hover {
   background-color: var(--danger-color);
 }
 
-/* Toast System */
+/* Toast */
 .toast-container {
   position: fixed;
   bottom: 24px;
@@ -831,7 +924,7 @@ tbody tr:hover {
 }
 
 .form-group label {
-  font-size: 0.85rem;
+  font-size: 0.84rem;
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -842,7 +935,7 @@ input[type="password"],
 input[type="date"],
 select,
 textarea {
-  background-color: rgba(13, 15, 26, 0.8);
+  background-color: var(--surface-color);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
   border-radius: var(--radius-input);
@@ -857,10 +950,9 @@ input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--primary-color);
   box-shadow: 0 0 0 3px var(--primary-glow);
-  background-color: var(--surface-color);
 }
 
-/* Tooltip & Help */
+/* Tooltips */
 .has-tooltip {
   position: relative;
   display: inline-flex;
@@ -876,7 +968,7 @@ input:focus, select:focus, textarea:focus {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background-color: rgba(255, 255, 255, 0.08);
+  background-color: var(--surface-hover);
   color: var(--text-secondary);
   font-size: 10px;
   font-style: normal;
@@ -886,12 +978,12 @@ input:focus, select:focus, textarea:focus {
 .tooltip-box {
   visibility: hidden;
   opacity: 0;
-  width: 220px;
-  background-color: #1a1d30;
+  width: 230px;
+  background-color: var(--surface-color);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
   text-align: left;
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 8px 12px;
   position: absolute;
   z-index: 500;
@@ -916,7 +1008,7 @@ input:focus, select:focus, textarea:focus {
 .loader-overlay {
   position: absolute;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(8, 9, 17, 0.7);
+  background: var(--surface-card);
   backdrop-filter: blur(4px);
   display: none;
   align-items: center;
@@ -930,176 +1022,17 @@ input:focus, select:focus, textarea:focus {
 }
 
 .spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid rgba(59, 130, 246, 0.2);
+  width: 30px;
+  height: 30px;
+  border: 3px solid var(--border-color);
   border-top-color: var(--primary-color);
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+  animation: spin 0.75s linear infinite;
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
-
-/* ============================================================
-   MICRO-INTERAZIONI & ANIMAZIONI (Institutional Fintech)
-   ============================================================ */
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(14px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-@keyframes slideInRight {
-  from { opacity: 0; transform: translateX(18px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-@keyframes scaleIn {
-  from { opacity: 0; transform: scale(0.97); }
-  to { opacity: 1; transform: scale(1); }
-}
-
-.fade-in-up { animation: fadeInUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.fade-in { animation: fadeIn 0.4s ease both; }
-.slide-in-right { animation: slideInRight 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.scale-in { animation: scaleIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both; }
-
-/* Stagger entrance per card/row lists */
-.stagger > * { animation: fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.stagger > *:nth-child(1) { animation-delay: 0.02s; }
-.stagger > *:nth-child(2) { animation-delay: 0.06s; }
-.stagger > *:nth-child(3) { animation-delay: 0.10s; }
-.stagger > *:nth-child(4) { animation-delay: 0.14s; }
-.stagger > *:nth-child(5) { animation-delay: 0.18s; }
-.stagger > *:nth-child(6) { animation-delay: 0.22s; }
-.stagger > *:nth-child(7) { animation-delay: 0.26s; }
-.stagger > *:nth-child(8) { animation-delay: 0.30s; }
-
-/* ============================================================
-   PRICE FLASH (pulse green/red su tick e aggiornamenti live)
-   ============================================================ */
-@keyframes flashGreen {
-  0% { background-color: rgba(16, 185, 129, 0.38); box-shadow: 0 0 14px rgba(16,185,129,0.35); }
-  100% { background-color: transparent; box-shadow: none; }
-}
-@keyframes flashRed {
-  0% { background-color: rgba(244, 63, 94, 0.38); box-shadow: 0 0 14px rgba(244,63,94,0.35); }
-  100% { background-color: transparent; box-shadow: none; }
-}
-.pulse-green, .flash-up { animation: flashGreen 1.1s ease-out; border-radius: 6px; }
-.pulse-red, .flash-down { animation: flashRed 1.1s ease-out; border-radius: 6px; }
-
-/* Dot live "breathing" per prezzi realtime */
-@keyframes livePulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.45; transform: scale(0.82); }
-}
-.live-dot {
-  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-  background: var(--success-color); margin-right: 6px;
-  animation: livePulse 1.6s ease-in-out infinite;
-  box-shadow: 0 0 6px var(--success-glow);
-}
-
-/* ============================================================
-   SKELETON SHIMMER LOADERS
-   ============================================================ */
-@keyframes shimmer {
-  0% { background-position: -450px 0; }
-  100% { background-position: 450px 0; }
-}
-.skeleton {
-  position: relative; overflow: hidden;
-  background: rgba(255,255,255,0.05);
-  border-radius: 8px;
-}
-.skeleton::after {
-  content: ""; position: absolute; inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
-  background-size: 450px 100%;
-  animation: shimmer 1.4s linear infinite;
-}
-.skeleton-line { height: 12px; margin-bottom: 10px; }
-.skeleton-line.w-40 { width: 40%; }
-.skeleton-line.w-60 { width: 60%; }
-.skeleton-line.w-80 { width: 80%; }
-.skeleton-stat { height: 40px; }
-.skeleton-chart { height: 300px; }
-.skeleton-row { height: 52px; margin-bottom: 8px; }
-
-/* ============================================================
-   CHART TOOLBAR & TOGGLE (Area vs Candlestick)
-   ============================================================ */
-.chart-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.chart-toggle-group {
-  display: inline-flex; background: rgba(255,255,255,0.04);
-  border: 1px solid var(--border-color); border-radius: var(--radius-pill);
-  padding: 2px; gap: 2px;
-}
-.chart-toggle-btn {
-  background: none; border: none; color: var(--text-secondary);
-  font-size: 0.78rem; font-weight: 600; padding: 4px 12px;
-  border-radius: var(--radius-pill); cursor: pointer; transition: var(--transition);
-  display: inline-flex; align-items: center; gap: 5px;
-}
-.chart-toggle-btn:hover { color: #fff; background: var(--surface-hover); }
-.chart-toggle-btn.active {
-  background: var(--cyan-color); color: #031014;
-  box-shadow: 0 1px 6px var(--cyan-glow);
-}
-
-/* Benchmark chips */
-.bench-chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 12px; border-radius: var(--radius-pill);
-  border: 1px solid var(--border-color); background: rgba(255,255,255,0.03);
-  color: var(--text-secondary); font-size: 0.78rem; font-weight: 600;
-  cursor: pointer; transition: var(--transition); user-select: none;
-}
-.bench-chip:hover { border-color: var(--primary-color); color: var(--text-primary); }
-.bench-chip.active {
-  border-color: var(--primary-color); background: rgba(59,130,246,0.12);
-  color: var(--text-primary); box-shadow: 0 0 10px -2px var(--primary-glow);
-}
-.bench-chip .swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
-
-/* ============================================================
-   RISK METRICS CARDS
-   ============================================================ */
-.risk-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-.risk-card {
-  background: var(--surface-card); border: 1px solid var(--border-color);
-  border-radius: var(--radius-card); padding: 14px 16px;
-  backdrop-filter: blur(8px); transition: var(--transition);
-  position: relative; overflow: hidden;
-}
-.risk-card:hover { transform: translateY(-2px); border-color: var(--border-focus); box-shadow: var(--shadow-glow); }
-.risk-card .risk-label {
-  font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;
-  letter-spacing: 0.04em; font-weight: 600; display: flex; align-items: center; gap: 6px;
-}
-.risk-card .risk-value { font-size: 1.5rem; font-weight: 700; margin-top: 6px; }
-.risk-card .risk-sub { font-size: 0.72rem; color: var(--text-secondary); margin-top: 3px; }
-
-/* ============================================================
-   REBALANCER
-   ============================================================ */
-.order-side-buy { color: var(--success-color); font-weight: 700; }
-.order-side-sell { color: var(--danger-color); font-weight: 700; }
-.drift-badge { padding: 3px 8px; border-radius: var(--radius-pill); font-size: 0.72rem; font-weight: 700; }
-
-/* ============================================================
-   MOBILE DRAWER BACKDROP & TOUCH
-   ============================================================ */
-.sidebar-backdrop {
-  position: fixed; inset: 0; background: rgba(4, 6, 12, 0.62);
-  backdrop-filter: blur(3px); z-index: 95; opacity: 0;
-  pointer-events: none; transition: opacity 0.25s ease;
-}
-.sidebar-backdrop.visible { opacity: 1; pointer-events: auto; }
 
 /* Responsive */
 @media (max-width: 900px) {

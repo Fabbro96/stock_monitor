@@ -296,6 +296,11 @@ const closeImportModal = () => importModal.classList.remove('active');
 document.addEventListener('DOMContentLoaded', () => {
   loadPortfolio();
 
+  // Listen for theme changes to redraw canvas chart
+  window.addEventListener('themeChanged', () => {
+    updateAllocationChart();
+  });
+
   // Check URL query params for ?add=TICKER
   const params = new URLSearchParams(window.location.search);
   const addTicker = params.get('add');
